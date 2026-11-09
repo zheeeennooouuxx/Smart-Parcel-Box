@@ -7,7 +7,8 @@ import {
   RotateCw, 
   Cpu,
   Radio,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Terminal
 } from 'lucide-react';
 import { SerialConnectionStatus, RTCStatus } from '../types/serial';
 
@@ -21,6 +22,7 @@ interface HeaderProps {
   onDisconnect: () => void;
   onToggleSimulator: () => void;
   onOpenSettings: () => void;
+  onOpenSerialMonitor?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   onDisconnect,
   onToggleSimulator,
   onOpenSettings,
+  onOpenSerialMonitor,
 }) => {
   const getStatusBadge = () => {
     switch (connectionStatus) {
@@ -148,6 +151,18 @@ export const Header: React.FC<HeaderProps> = ({
           <Cpu className="w-4 h-4" />
           <span className="hidden md:inline">{isSimulated ? 'Stop Sim' : 'Simulasi'}</span>
         </button>
+
+        {onOpenSerialMonitor && (
+          <button
+            onClick={onOpenSerialMonitor}
+            aria-label="Buka Serial Monitor"
+            title="Buka Terminal Serial Monitor ESP32"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/60 text-cyan-300 text-xs font-tech font-bold transition-colors shadow-sm"
+          >
+            <Terminal className="w-4 h-4 text-cyan-400" />
+            <span className="hidden sm:inline">Monitor</span>
+          </button>
+        )}
 
         <button
           onClick={onOpenSettings}

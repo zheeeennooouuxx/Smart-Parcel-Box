@@ -14,12 +14,14 @@ import { PinAccessView } from './components/PinAccessView';
 import { ActivityLogsView } from './components/ActivityLogsView';
 import { Esp32GuideView } from './components/Esp32GuideView';
 import { SettingsView } from './components/SettingsView';
+import { SerialMonitorView } from './components/SerialMonitorView';
 import { 
   ParcelBoxState, 
   ActivityLog, 
   SerialLineEntry, 
   SerialConnectionStatus, 
-  ESP32Message 
+  ESP32Message,
+  LineEndingType
 } from './types/serial';
 import { processESP32Message } from './services/serialParser';
 import { WebSerialManager } from './services/webSerialManager';
@@ -132,16 +134,17 @@ export default function App() {
     const now = new Date();
     const timeFormatted = now.toTimeString().slice(0, 8);
 
-    // Append to raw lines
+    // Append to raw lines with direction: 'RX'
     setRawLines((prev) => [
       {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         time: timeFormatted,
         raw: rawLine,
+        direction: 'RX',
         parsed: message,
         error: !message,
       },
-      ...prev.slice(0, 299),
+      ...prev.slice(0, 499),
     ]);
 
     if (!message) return;
@@ -165,6 +168,23 @@ export default function App() {
     });
   }, [playChime]);
 
+  const handleDataSent = useCallback((rawText: string) => {
+    const now = new Date();
+    const timeFormatted = now.toTimeString().slice(0, 8);
+
+    // Append to raw lines with direction: 'TX'
+    setRawLines((prev) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        time: timeFormatted,
+        raw: rawText.replace(/[\r\n]+$/, ''),
+        direction: 'TX',
+        error: false,
+      },
+      ...prev.slice(0, 499),
+    ]);
+  }, []);
+
   const handlePortSelected = useCallback((portName: string) => {
     setState((prev) => ({ ...prev, portInfo: portName }));
   }, []);
@@ -174,6 +194,7 @@ export default function App() {
     const manager = new WebSerialManager({
       onStatusChange: handleStatusChange,
       onDataReceived: handleDataReceived,
+      onDataSent: handleDataSent,
       onPortSelected: handlePortSelected,
     });
     serialManagerRef.current = manager;
@@ -181,7 +202,19 @@ export default function App() {
     return () => {
       manager.disconnect();
     };
-  }, [handleStatusChange, handleDataReceived, handlePortSelected]);
+  }, [handleStatusChange, handleDataReceived, handleDataSent, handlePortSelected]);
+
+  // Send message to serial port
+  const handleSendMessage = async (text: string, ending: LineEndingType): Promise<boolean> => {
+    if (!serialManagerRef.current) return false;
+    return await serialManagerRef.current.send(text, ending);
+  };
+
+  // Hardware Reset ESP32
+  const handleResetDevice = async (): Promise<boolean> => {
+    if (!serialManagerRef.current) return false;
+    return await serialManagerRef.current.resetDevice();
+  };
 
   // Connect Handler
   const handleConnect = async () => {
@@ -254,6 +287,7 @@ export default function App() {
         onDisconnect={handleDisconnect}
         onToggleSimulator={handleToggleSimulator}
         onOpenSettings={() => setActiveTab('settings')}
+        onOpenSerialMonitor={() => setActiveTab('monitor')}
       />
 
       {/* Alert Banner if active */}
@@ -345,6 +379,21 @@ export default function App() {
                 />
               </div>
             </div>
+          )}
+
+          {activeTab === 'monitor' && (
+            <SerialMonitorView
+              lines={rawLines}
+              connectionStatus={state.connectionStatus}
+              portInfo={state.portInfo}
+              baudRate={baudRate}
+              onBaudRateChange={handleBaudRateChange}
+              onSendMessage={handleSendMessage}
+              onResetDevice={handleResetDevice}
+              onClearLogs={handleClearLogs}
+              onConnect={handleConnect}
+              onDisconnect={handleDisconnect}
+            />
           )}
 
           {activeTab === 'logs' && (

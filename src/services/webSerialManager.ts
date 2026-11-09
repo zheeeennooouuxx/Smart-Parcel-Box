@@ -4,11 +4,12 @@
  */
 
 import { LineBufferAccumulator, parseSerialJsonLine } from './serialParser';
-import { ESP32Message, SerialConnectionStatus } from '../types/serial';
+import { ESP32Message, SerialConnectionStatus, LineEndingType } from '../types/serial';
 
 export interface WebSerialCallbacks {
   onStatusChange: (status: SerialConnectionStatus, errorMsg?: string) => void;
   onDataReceived: (rawLine: string, message: ESP32Message | null, byteCount: number) => void;
+  onDataSent?: (rawText: string) => void;
   onPortSelected: (portInfo: string) => void;
 }
 
@@ -312,5 +313,98 @@ export class WebSerialManager {
 
   public getIsSimulated(): boolean {
     return this.isSimulated;
+  }
+
+  /**
+   * Send data to ESP32 via Web Serial or Virtual Simulator
+   */
+  public async send(text: string, ending: LineEndingType = 'NL'): Promise<boolean> {
+    let suffix = '';
+    switch (ending) {
+      case 'NL': suffix = '\n'; break;
+      case 'CR': suffix = '\r'; break;
+      case 'NL_CR': suffix = '\r\n'; break;
+      case 'NONE': suffix = ''; break;
+    }
+    const fullMessage = text + suffix;
+
+    if (this.isSimulated) {
+      this.callbacks.onDataSent?.(fullMessage);
+      setTimeout(() => {
+        this.processSimulatedCommand(text.trim());
+      }, 80);
+      return true;
+    }
+
+    if (!this.port || !this.port.writable) {
+      throw new Error('Port serial belum terhubung atau tidak dapat ditulis.');
+    }
+
+    try {
+      const encoder = new TextEncoder();
+      const writer = this.port.writable.getWriter();
+      await writer.write(encoder.encode(fullMessage));
+      writer.releaseLock();
+      this.callbacks.onDataSent?.(fullMessage);
+      return true;
+    } catch (err: unknown) {
+      const error = err as Error;
+      throw new Error(`Gagal mengirim data serial: ${error.message || 'Write error'}`);
+    }
+  }
+
+  /**
+   * Hardware Reset via DTR/RTS lines toggle
+   */
+  public async resetDevice(): Promise<boolean> {
+    if (this.isSimulated) {
+      this.callbacks.onDataReceived('--- ESP32 HARDWARE REBOOT TRIGGERED (RST PIN LOW -> HIGH) ---', null, 50);
+      setTimeout(() => {
+        this.callbacks.onDataReceived('rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)', null, 60);
+        this.callbacks.onDataReceived('Smart Parcel Box ESP32 Firmware Ready. UART2 link active.', null, 55);
+      }, 300);
+      return true;
+    }
+
+    if (!this.port) return false;
+    try {
+      if (typeof this.port.setSignals === 'function') {
+        await this.port.setSignals({ dataTerminalReady: false, requestToSend: true });
+        await new Promise((r) => setTimeout(r, 150));
+        await this.port.setSignals({ dataTerminalReady: true, requestToSend: false });
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  private processSimulatedCommand(cmd: string): void {
+    const upper = cmd.toUpperCase();
+    if (upper === 'PING') {
+      this.emitSimulatedPacket({ type: 'PONG', message: 'ESP32 HARDWARE ALIVE & RESPONSIVE' });
+    } else if (upper === 'STATUS') {
+      const now = new Date();
+      this.emitSimulatedPacket({
+        type: 'STATUS',
+        rtc: this.simRtcOk ? 'OK' : 'ERROR',
+        date: now.toISOString().slice(0, 10),
+        time: now.toTimeString().slice(0, 8),
+        period: this.simPeriod,
+        pin: this.simPin,
+        door: this.simDoorState,
+      });
+    } else if (upper === 'DOOR_OPEN' || upper === 'OPEN') {
+      this.simulateDoorToggle('OPEN');
+    } else if (upper === 'DOOR_CLOSED' || upper === 'CLOSE') {
+      this.simulateDoorToggle('CLOSED');
+    } else if (upper.includes('BEEP')) {
+      this.emitSimulatedPacket({ type: 'ACK', message: 'BEEP BUZZER EXECUTED' });
+    } else if (upper === 'RESTART' || upper === 'RESET') {
+      this.resetDevice();
+    } else {
+      this.emitSimulatedPacket({ type: 'ACK', message: `CMD RECEIVED: ${cmd}` });
+    }
   }
 }

@@ -146,7 +146,21 @@ void loop() {
     }
   }
 
-  // 3. Telemetri Rutin ke Web Dashboard via USB Serial setiap 2 detik
+  // 3. Baca Perintah Masuk dari Web Serial Monitor (Browser ke ESP32)
+  while (Serial.available()) {
+    String cmd = Serial.readStringUntil('\\n');
+    cmd.trim();
+    if (cmd == "PING") {
+      Serial.println("{\\"type\\":\\"PONG\\",\\"message\\":\\"ESP32 ALIVE\\"}");
+    } else if (cmd == "STATUS") {
+      lastSerialTelemetry = 0; // Segera kirim paket status JSON
+    } else if (cmd == "BEEP") {
+      digitalWrite(BUZZER_PIN, HIGH); delay(150); digitalWrite(BUZZER_PIN, LOW);
+      Serial.println("{\\"type\\":\\"ACK\\",\\"message\\":\\"BEEP EXECUTED\\"}");
+    }
+  }
+
+  // 4. Telemetri Rutin ke Web Dashboard via USB Serial setiap 2 detik
   if (millis() - lastSerialTelemetry >= 2000) {
     lastSerialTelemetry = millis();
 

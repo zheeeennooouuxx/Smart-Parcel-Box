@@ -8,11 +8,12 @@ import {
   Settings,
   CircleDot,
   DoorClosed,
-  Clock
+  Clock,
+  Terminal
 } from 'lucide-react';
 import { ParcelBoxState } from '../types/serial';
 
-export type ActiveTab = 'dashboard' | 'pin-access' | 'device' | 'logs' | 'firmware' | 'settings';
+export type ActiveTab = 'dashboard' | 'pin-access' | 'device' | 'monitor' | 'logs' | 'firmware' | 'settings';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -45,6 +46,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Device Monitoring',
       sublabel: 'ESP32, RTC, Reed Switch',
       icon: Cpu,
+    },
+    {
+      id: 'monitor' as ActiveTab,
+      label: 'Serial Monitor',
+      sublabel: 'Kirim & Terima Port ESP',
+      icon: Terminal,
+      badge: state.connectionStatus === 'CONNECTED' ? 'ONLINE' : undefined,
+      badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
     },
     {
       id: 'logs' as ActiveTab,

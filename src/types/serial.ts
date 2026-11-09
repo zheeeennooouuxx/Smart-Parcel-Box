@@ -59,10 +59,15 @@ export interface ActivityLog {
   details?: string;
 }
 
+export type SerialDirection = 'RX' | 'TX';
+
+export type LineEndingType = 'NL' | 'CR' | 'NL_CR' | 'NONE';
+
 export interface SerialLineEntry {
   id: string;
   time: string;
   raw: string;
+  direction?: SerialDirection;
   parsed?: ESP32Message | null;
   error?: boolean;
 }
