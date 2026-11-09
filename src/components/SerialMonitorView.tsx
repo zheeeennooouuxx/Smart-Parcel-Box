@@ -17,7 +17,9 @@ import {
   Binary, 
   AlertCircle,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  KeyRound,
+  ArrowRight
 } from 'lucide-react';
 import { 
   SerialLineEntry, 
@@ -30,12 +32,15 @@ interface SerialMonitorViewProps {
   connectionStatus: SerialConnectionStatus;
   portInfo?: string;
   baudRate: number;
+  pin?: string;
+  period?: number;
   onBaudRateChange: (rate: number) => void;
   onSendMessage: (text: string, ending: LineEndingType) => Promise<boolean>;
   onResetDevice: () => Promise<boolean>;
   onClearLogs: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onGoToPinAccess?: () => void;
 }
 
 export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
@@ -43,12 +48,15 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
   connectionStatus,
   portInfo,
   baudRate,
+  pin,
+  period,
   onBaudRateChange,
   onSendMessage,
   onResetDevice,
   onClearLogs,
   onConnect,
   onDisconnect,
+  onGoToPinAccess,
 }) => {
   const [inputText, setInputText] = useState('');
   const [lineEnding, setLineEnding] = useState<LineEndingType>('NL');
@@ -237,6 +245,49 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
         </div>
       </div>
 
+      {/* Synchronized PIN Access Banner when PIN is detected */}
+      {pin && (
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-[#0d1e3d] via-[#09152b] to-[#062022] p-3 rounded-2xl border border-cyan-500/40 shadow-lg shadow-cyan-950/30 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              <KeyRound className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono-code text-cyan-400 font-bold uppercase tracking-wider">
+                  PIN Akses Serial Terdeteksi
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-mono-code font-bold">
+                  ACTIVE
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-xl md:text-2xl font-black font-mono-code tracking-[0.25em] text-cyan-200">
+                  {pin}
+                </span>
+                {period !== undefined && (
+                  <span className="text-xs font-mono-code text-slate-400">
+                    (Periode #{period})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onGoToPinAccess && (
+              <button
+                onClick={onGoToPinAccess}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-tech font-bold tracking-wider shadow-md shadow-cyan-500/25 active:scale-95 transition-all"
+              >
+                <span>BUKA TAB PIN ACCESS</span>
+                <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Quick Macros Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0c1326]/60 p-2.5 rounded-xl border border-slate-800/80 text-xs shrink-0">
         <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
@@ -245,6 +296,7 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
           </span>
           {[
             { label: 'STATUS', cmd: 'STATUS', desc: 'Minta info status JSON' },
+            { label: 'GET PIN', cmd: 'PIN', desc: 'Minta PIN dinamis dari ESP32' },
             { label: 'PING', cmd: 'PING', desc: 'Uji respons PONG' },
             { label: 'OPEN DOOR', cmd: 'DOOR_OPEN', desc: 'Simulasi buka pintu' },
             { label: 'CLOSE DOOR', cmd: 'DOOR_CLOSED', desc: 'Simulasi tutup pintu' },

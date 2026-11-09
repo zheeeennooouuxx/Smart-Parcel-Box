@@ -3,7 +3,7 @@
  * Handles hardware serial connection via Chrome/Edge Web Serial API.
  */
 
-import { LineBufferAccumulator, parseSerialJsonLine } from './serialParser';
+import { LineBufferAccumulator, parseAnySerialLine } from './serialParser';
 import { ESP32Message, SerialConnectionStatus, LineEndingType } from '../types/serial';
 
 export interface WebSerialCallbacks {
@@ -130,7 +130,7 @@ export class WebSerialManager {
           const completeLines = this.accumulator.push(chunkStr);
 
           for (const line of completeLines) {
-            const parsed = parseSerialJsonLine(line);
+            const parsed = parseAnySerialLine(line);
             this.callbacks.onDataReceived(line, parsed, byteLength);
           }
         }
@@ -381,11 +381,29 @@ export class WebSerialManager {
   }
 
   private processSimulatedCommand(cmd: string): void {
-    const upper = cmd.toUpperCase();
+    const upper = cmd.toUpperCase().trim();
+    const now = new Date();
+
+    // Check for explicit PIN set command, e.g. "PIN: 123456" or "PIN 123456"
+    const pinMatch = cmd.match(/(?:PIN|SET_PIN|SET\s*PIN)\s*[:=]?\s*([0-9]{4,8})/i);
+    if (pinMatch && pinMatch[1]) {
+      this.simPin = pinMatch[1].padStart(6, '0').slice(-6);
+      this.emitSimulatedPacket({
+        type: 'STATUS',
+        rtc: this.simRtcOk ? 'OK' : 'ERROR',
+        date: now.toISOString().slice(0, 10),
+        time: now.toTimeString().slice(0, 8),
+        period: this.simPeriod,
+        pin: this.simPin,
+        door: this.simDoorState,
+        message: `PIN AKTIF BARU: ${this.simPin}`
+      });
+      return;
+    }
+
     if (upper === 'PING') {
       this.emitSimulatedPacket({ type: 'PONG', message: 'ESP32 HARDWARE ALIVE & RESPONSIVE' });
-    } else if (upper === 'STATUS') {
-      const now = new Date();
+    } else if (upper === 'STATUS' || upper === 'PIN' || upper === 'GET_PIN' || upper === 'GET PIN') {
       this.emitSimulatedPacket({
         type: 'STATUS',
         rtc: this.simRtcOk ? 'OK' : 'ERROR',

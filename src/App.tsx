@@ -23,7 +23,7 @@ import {
   ESP32Message,
   LineEndingType
 } from './types/serial';
-import { processESP32Message } from './services/serialParser';
+import { processESP32Message, parseAnySerialLine } from './services/serialParser';
 import { WebSerialManager } from './services/webSerialManager';
 import { AlertTriangle, X, ShieldAlert, Sparkles, CheckCircle2 } from 'lucide-react';
 
@@ -133,6 +133,7 @@ export default function App() {
   const handleDataReceived = useCallback((rawLine: string, message: ESP32Message | null, byteCount: number) => {
     const now = new Date();
     const timeFormatted = now.toTimeString().slice(0, 8);
+    const parsedMessage: ESP32Message = message || parseAnySerialLine(rawLine) || { type: 'RAW', message: rawLine };
 
     // Append to raw lines with direction: 'RX'
     setRawLines((prev) => [
@@ -141,16 +142,14 @@ export default function App() {
         time: timeFormatted,
         raw: rawLine,
         direction: 'RX',
-        parsed: message,
-        error: !message,
+        parsed: parsedMessage,
+        error: false,
       },
       ...prev.slice(0, 499),
     ]);
 
-    if (!message) return;
-
     setState((prevState) => {
-      const { nextState, newLogs } = processESP32Message(prevState, message, now.toISOString());
+      const { nextState, newLogs } = processESP32Message(prevState, parsedMessage, now.toISOString());
       
       // Update byte counter
       nextState.rxBytesCount = prevState.rxBytesCount + byteCount;
@@ -387,12 +386,15 @@ export default function App() {
               connectionStatus={state.connectionStatus}
               portInfo={state.portInfo}
               baudRate={baudRate}
+              pin={state.pin}
+              period={state.period}
               onBaudRateChange={handleBaudRateChange}
               onSendMessage={handleSendMessage}
               onResetDevice={handleResetDevice}
               onClearLogs={handleClearLogs}
               onConnect={handleConnect}
               onDisconnect={handleDisconnect}
+              onGoToPinAccess={() => setActiveTab('pin-access')}
             />
           )}
 

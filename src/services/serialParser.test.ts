@@ -4,6 +4,7 @@ import {
   formatSixDigitPin,
   LineBufferAccumulator,
   parseSerialJsonLine,
+  parseAnySerialLine,
   processESP32Message,
 } from './serialParser';
 import { ParcelBoxState } from '../types/serial';
@@ -146,4 +147,51 @@ test('processESP32Message handles door state transition from CLOSED to OPEN', ()
   const { nextState, newLogs } = processESP32Message(initialState, doorMsg);
   assert.equal(nextState.doorStatus, 'OPEN');
   assert.ok(newLogs.some(l => l.type === 'DOOR_OPEN'));
+});
+
+test('parseAnySerialLine extracts PIN and metadata from plain-text serial outputs', () => {
+  // Plain text PIN formats
+  const parsed1 = parseAnySerialLine('PIN: 084291');
+  assert.equal(parsed1?.pin, '084291');
+
+  const parsed2 = parseAnySerialLine('PIN AKTIF: 84291');
+  assert.equal(parsed2?.pin, '084291');
+
+  const parsed3 = parseAnySerialLine('[ESP32] SIKLUS: 43821, PIN: 084291, DOOR: CLOSED, RTC: OK');
+  assert.equal(parsed3?.pin, '084291');
+  assert.equal(parsed3?.period, 43821);
+  assert.equal(parsed3?.door, 'CLOSED');
+  assert.equal(parsed3?.rtc, 'OK');
+
+  const parsed4 = parseAnySerialLine('084291');
+  assert.equal(parsed4?.pin, '084291');
+
+  const parsed5 = parseAnySerialLine('DOOR_OPEN');
+  assert.equal(parsed5?.door, 'OPEN');
+});
+
+test('processESP32Message transitions DISCONNECTED state to CONNECTED upon receiving serial communication', () => {
+  const disconnectedState: ParcelBoxState = {
+    connectionStatus: 'DISCONNECTED',
+    baudRate: 9600,
+    rtcStatus: 'UNKNOWN',
+    pinStatus: 'WAITING_DEVICE',
+    doorStatus: 'UNKNOWN',
+    rxPacketCount: 0,
+    rxBytesCount: 0,
+  };
+
+  const incomingPinMsg = parseAnySerialLine('PIN: 084291')!;
+  assert.ok(incomingPinMsg);
+
+  const { nextState, newLogs } = processESP32Message(disconnectedState, incomingPinMsg);
+
+  // Status must be CONNECTED
+  assert.equal(nextState.connectionStatus, 'CONNECTED');
+  // PIN must be active with leading zero
+  assert.equal(nextState.pin, '084291');
+  assert.equal(nextState.pinStatus, 'ACTIVE');
+  // Logs must record connection and pin sync
+  assert.ok(newLogs.some(l => l.type === 'CONNECT'));
+  assert.ok(newLogs.some(l => l.type === 'INFO' && l.message.includes('084291')));
 });

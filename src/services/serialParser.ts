@@ -71,24 +71,116 @@ export class LineBufferAccumulator {
 }
 
 /**
- * Safely parse a serial line into an ESP32Message.
- * Returns null if the line is not valid JSON.
+ * Strict JSON line parser for ESP32 JSON protocol
  */
 export function parseSerialJsonLine(line: string): ESP32Message | null {
   const trimmed = line.trim();
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
     return null;
   }
-
   try {
     const parsed = JSON.parse(trimmed) as ESP32Message;
-    if (typeof parsed !== 'object' || parsed === null) {
-      return null;
+    if (typeof parsed === 'object' && parsed !== null) {
+      if (parsed.pin !== undefined) {
+        parsed.pin = formatSixDigitPin(parsed.pin);
+      }
+      return parsed;
     }
-    return parsed;
   } catch {
     return null;
   }
+  return null;
+}
+
+/**
+ * Safely parse any serial line into an ESP32Message.
+ * Supports:
+ * 1. Pure JSON format: {"type":"STATUS","pin":"084291",...}
+ * 2. Embedded JSON inside serial logs: [ESP32] {"pin":"084291"}
+ * 3. Plain text outputs from Arduino Serial.println:
+ *    - "PIN: 084291" or "PIN AKTIF: 084291"
+ *    - "Tanggal: 2026-11-09, Waktu: 19:30:00, Periode: 43821, PIN: 084291"
+ *    - "STEP: 43821, PIN: 084291, DOOR: CLOSED"
+ *    - "DOOR_OPEN" / "DOOR_CLOSED"
+ *    - "RTC_OK" / "RTC_ERROR"
+ *    - Raw 6-digit line: "084291"
+ */
+export function parseAnySerialLine(line: string): ESP32Message | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+
+  // 1. Check for pure or embedded JSON {...}
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const jsonCandidate = trimmed.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(jsonCandidate) as ESP32Message;
+      if (typeof parsed === 'object' && parsed !== null) {
+        if (parsed.pin !== undefined) {
+          parsed.pin = formatSixDigitPin(parsed.pin);
+        }
+        return parsed;
+      }
+    } catch {
+      // continue to regex extraction
+    }
+  }
+
+  // 2. Extract fields from plain text / Serial.print output
+  const msg: ESP32Message = { type: 'RAW' };
+  let hasData = false;
+
+  // Extract PIN (e.g. "PIN: 084291", "PIN=084291", "PIN AKTIF: 084291", "PIN SAAT INI: 084291", "084291", "KODE: 084291")
+  const pinMatch = trimmed.match(/(?:PIN|PIN\s*AKTIF|PIN\s*SAAT\s*INI|PIN\s*DINAMIS|PASSCODE|CODE|KODE|KEY)\s*[:=]?\s*([0-9]{4,8})/i)
+    || trimmed.match(/\bPIN\b.*?([0-9]{6})/i)
+    || trimmed.match(/^([0-9]{6})$/);
+  if (pinMatch && pinMatch[1]) {
+    msg.pin = formatSixDigitPin(pinMatch[1]);
+    hasData = true;
+  }
+
+  // Extract Period (e.g. "PERIODE: 43821", "PERIOD: 43821", "STEP: 43821", "SIKLUS: 43821")
+  const periodMatch = trimmed.match(/(?:PERIOD|PERIODE|STEP|SIKLUS)\s*[:=]?\s*([0-9]+)/i);
+  if (periodMatch && periodMatch[1]) {
+    msg.period = Number(periodMatch[1]);
+    hasData = true;
+  }
+
+  // Extract Date (YYYY-MM-DD)
+  const dateMatch = trimmed.match(/\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/);
+  if (dateMatch && dateMatch[1]) {
+    msg.date = dateMatch[1];
+    hasData = true;
+  }
+
+  // Extract Time (HH:mm:ss)
+  const timeMatch = trimmed.match(/\b([0-9]{2}:[0-9]{2}:[0-9]{2})\b/);
+  if (timeMatch && timeMatch[1]) {
+    msg.time = timeMatch[1];
+    hasData = true;
+  }
+
+  // Extract Door status
+  if (/\b(?:DOOR_OPEN|PINTU_TERBUKA)\b/i.test(trimmed) || /(?:DOOR|PINTU)\s*[:=]?\s*(?:OPEN|BUKA|TERBUKA)/i.test(trimmed)) {
+    msg.door = 'OPEN';
+    hasData = true;
+  } else if (/\b(?:DOOR_CLOSED|PINTU_TERTUTUP)\b/i.test(trimmed) || /(?:DOOR|PINTU)\s*[:=]?\s*(?:CLOSED|CLOSE|TERTUTUP|KUNCI|TERKUNCI)/i.test(trimmed)) {
+    msg.door = 'CLOSED';
+    hasData = true;
+  }
+
+  // Extract RTC status
+  if (/\b(?:RTC_ERROR|RTC_NOT_READY)\b/i.test(trimmed) || /RTC\s*[:=]?\s*ERROR/i.test(trimmed)) {
+    msg.rtc = 'ERROR';
+    msg.message = 'RTC NOT READY';
+    hasData = true;
+  } else if (/\b(?:RTC_OK|RTC_READY)\b/i.test(trimmed) || /RTC\s*[:=]?\s*OK/i.test(trimmed) || (msg.date && msg.time)) {
+    msg.rtc = 'OK';
+    hasData = true;
+  }
+
+  return hasData ? msg : { type: 'RAW', message: trimmed };
 }
 
 /**
@@ -121,9 +213,15 @@ export function processESP32Message(
     });
   };
 
+  // Requirement: Once serial communication is received, set device status as CONNECTED
+  if (nextState.connectionStatus !== 'CONNECTED') {
+    nextState.connectionStatus = 'CONNECTED';
+    pushLog('CONNECT', 'ESP32 berhasil terhubung dan stream data aktif');
+  }
+
   // 1. Process RTC status and time
   if (message.rtc) {
-    const isRtcOk = message.rtc.toUpperCase() === 'OK';
+    const isRtcOk = String(message.rtc).toUpperCase() === 'OK';
     const newRtcStatus = isRtcOk ? 'OK' : 'ERROR';
     
     if (currentState.rtcStatus !== newRtcStatus) {
@@ -134,6 +232,9 @@ export function processESP32Message(
       }
     }
     nextState.rtcStatus = newRtcStatus;
+  } else if (currentState.rtcStatus === 'UNKNOWN' && (message.date || message.time || message.pin)) {
+    // If not specified as error, default to OK when valid telemetry or PIN is received
+    nextState.rtcStatus = 'OK';
   }
 
   if (message.date) {
@@ -175,31 +276,31 @@ export function processESP32Message(
     }
   }
 
+  // Process PIN - directly updates PIN and marks status as ACTIVE
   if (message.pin !== undefined && message.pin !== null) {
     const formattedPin = formatSixDigitPin(message.pin);
     if (formattedPin && formattedPin.length === 6) {
+      const isNewPin = currentState.pin !== formattedPin;
       nextState.pin = formattedPin;
       nextState.pinStatus = nextState.rtcStatus === 'ERROR' ? 'INVALID' : 'ACTIVE';
+      
+      if (isNewPin) {
+        pushLog('INFO', `PIN Akses ESP32 sinkron dari Serial Monitor: ${formattedPin}`);
+      }
     }
   }
 
-  // If RTC is error, ensure PIN status is marked as invalid or error
+  // If RTC is explicitly error, invalidate PIN
   if (nextState.rtcStatus === 'ERROR') {
     nextState.pinStatus = 'INVALID';
+  } else if (nextState.pin && nextState.pin.length === 6) {
+    nextState.pinStatus = 'ACTIVE';
   }
 
   // 4. Process Error message type
-  if (message.type === 'ERROR' || message.message) {
-    if (message.type === 'ERROR') {
-      nextState.errorMessage = message.message || 'Perangkat melaporkan kesalahan.';
-      pushLog('ERROR', `Error dari ESP32: ${nextState.errorMessage}`);
-    }
-  }
-
-  // If we were waiting for device and received a valid message, mark as CONNECTED
-  if (nextState.connectionStatus === 'CONNECTING') {
-    nextState.connectionStatus = 'CONNECTED';
-    pushLog('CONNECT', 'ESP32 berhasil terhubung dan stream data aktif');
+  if (message.type === 'ERROR' || (message.message && message.rtc === 'ERROR')) {
+    nextState.errorMessage = message.message || 'Perangkat melaporkan kesalahan.';
+    pushLog('ERROR', `Error dari ESP32: ${nextState.errorMessage}`);
   }
 
   return { nextState, newLogs };
