@@ -47,6 +47,7 @@ interface SerialMonitorViewProps {
   onConnect: () => void;
   onDisconnect: () => void;
   onGoToPinAccess?: () => void;
+  onSwitchToWifi?: (ip?: string) => void;
 }
 
 export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
@@ -65,6 +66,7 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
   onConnect,
   onDisconnect,
   onGoToPinAccess,
+  onSwitchToWifi,
 }) => {
   const [inputText, setInputText] = useState('');
   const [lineEnding, setLineEnding] = useState<LineEndingType>('NL');
@@ -299,9 +301,57 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
             {onGoToPinAccess && (
               <button
                 onClick={onGoToPinAccess}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-tech font-bold tracking-wider shadow-md shadow-cyan-500/25 active:scale-95 transition-all"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 text-xs font-tech font-bold tracking-wider shadow-md shadow-cyan-500/25 active:scale-95 transition-all cursor-pointer"
               >
                 <span>BUKA TAB PIN ACCESS</span>
+                <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Synchronized WiFi IP Banner when WiFi IP is detected from serial */}
+      {wifiConfig?.ip && connectionType === 'SERIAL' && (
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-blue-950/90 via-[#0a1835] to-slate-900 p-3 rounded-2xl border border-blue-500/40 shadow-lg shadow-blue-950/30 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-blue-500/20 text-blue-300 border border-blue-500/30">
+              <Signal className="w-5 h-5 animate-pulse text-cyan-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono-code text-cyan-400 font-bold uppercase tracking-wider">
+                  Alamat IP ESP32 Tercatat Otomatis
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-mono-code font-bold">
+                  {wifiConfig.ssid || 'AAA'}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 mt-0.5 text-xs font-mono-code">
+                <span className="text-base font-bold text-white font-mono-code">
+                  {wifiConfig.ip}
+                </span>
+                {wifiConfig.gateway && (
+                  <span className="text-slate-400 text-[11px]">
+                    • Gateway: {wifiConfig.gateway}
+                  </span>
+                )}
+                {wifiConfig.subnet && (
+                  <span className="text-slate-400 text-[11px]">
+                    • Mask: {wifiConfig.subnet}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {onSwitchToWifi && (
+              <button
+                onClick={() => onSwitchToWifi(wifiConfig.ip)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-slate-950 text-xs font-tech font-bold tracking-wider shadow-md shadow-blue-500/25 active:scale-95 transition-all cursor-pointer"
+              >
+                <span>BERALIH KE KONEKSI WIFI HOTSPOT</span>
                 <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
               </button>
             )}

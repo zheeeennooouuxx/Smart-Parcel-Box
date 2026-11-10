@@ -147,18 +147,27 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
     hasData = true;
   }
 
-  // Extract Date (DD/MM/YYYY or YYYY-MM-DD)
-  const dateMatch = trimmed.match(/(?:Tanggal\s*[:=]?\s*)?([0-9]{2}[\/-][0-9]{2}[\/-][0-9]{4})\b/i)
+  // Extract Date (DD/MM/YYYY or YYYY-MM-DD, e.g. "Tanggal WITA : 11/11/2026", "Tanggal : 11/11/2026")
+  const dateMatch = trimmed.match(/(?:Tanggal(?:\s*WITA)?\s*[:=]?\s*)([0-9]{2}[\/-][0-9]{2}[\/-][0-9]{4})\b/i)
+    || trimmed.match(/\b([0-9]{2}[\/-][0-9]{2}[\/-][0-9]{4})\b/)
     || trimmed.match(/\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/);
   if (dateMatch && dateMatch[1]) {
     msg.date = dateMatch[1];
     hasData = true;
   }
 
-  // Extract Time (HH:mm:ss)
-  const timeMatch = trimmed.match(/(?:Waktu\s*[:=]?\s*)?([0-9]{2}:[0-9]{2}:[0-9]{2})\b/i);
+  // Extract Time (HH:mm:ss, e.g. "Jam WITA : 01:04:50", "Waktu : 01:04:50")
+  const timeMatch = trimmed.match(/(?:(?:Jam|Waktu)(?:\s*WITA)?\s*[:=]?\s*)([0-9]{2}:[0-9]{2}:[0-9]{2})\b/i)
+    || trimmed.match(/\b([0-9]{2}:[0-9]{2}:[0-9]{2})\b/);
   if (timeMatch && timeMatch[1]) {
     msg.time = timeMatch[1];
+    hasData = true;
+  }
+
+  // Extract Time Zone (e.g. "Zona waktu: WITA (UTC+8)", "Zona Waktu    : WITA (Makassar)")
+  const tzMatch = trimmed.match(/(?:Zona\s*Waktu)\s*[:=]?\s*(.+)$/i);
+  if (tzMatch && tzMatch[1]) {
+    msg.timeZone = tzMatch[1].trim();
     hasData = true;
   }
 
@@ -169,14 +178,28 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
     hasData = true;
   }
 
-  // Extract WiFi IP Address (e.g. "Alamat IP  : 192.168.43.123")
+  // Extract WiFi IP Address (e.g. "Alamat IP  : 10.86.29.138")
   const ipMatch = trimmed.match(/(?:Alamat\s*IP|IP\s*Address|Local\s*IP|IP)\s*[:=]?\s*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/i);
   if (ipMatch && ipMatch[1]) {
     msg.wifiIp = ipMatch[1].trim();
     hasData = true;
   }
 
-  // Extract WiFi Signal RSSI (e.g. "Kekuatan   : -55 dBm")
+  // Extract Gateway (e.g. "Gateway     : 10.86.29.155")
+  const gatewayMatch = trimmed.match(/(?:Gateway|Default\s*Gateway)\s*[:=]?\s*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/i);
+  if (gatewayMatch && gatewayMatch[1]) {
+    msg.wifiGateway = gatewayMatch[1].trim();
+    hasData = true;
+  }
+
+  // Extract Subnet Mask (e.g. "Subnet Mask : 255.255.255.0")
+  const subnetMatch = trimmed.match(/(?:Subnet\s*Mask|Subnet|Netmask)\s*[:=]?\s*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/i);
+  if (subnetMatch && subnetMatch[1]) {
+    msg.wifiSubnet = subnetMatch[1].trim();
+    hasData = true;
+  }
+
+  // Extract WiFi Signal RSSI (e.g. "Kekuatan   : -16 dBm")
   const rssiMatch = trimmed.match(/(?:Kekuatan|Signal|RSSI)\s*[:=]?\s*(-?[0-9]+)\s*(?:dBm)?/i);
   if (rssiMatch && rssiMatch[1]) {
     msg.wifiRssi = Number(rssiMatch[1]);
@@ -191,6 +214,13 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
   } else if (/Wi-?Fi\s*terputus!/i.test(trimmed)) {
     msg.type = 'WIFI';
     msg.message = 'WiFi terputus dari Hotspot';
+    hasData = true;
+  }
+
+  // Extract RTC sync events
+  if (/WAKTU\s*RTC\s*BERHASIL\s*DISINKRONKAN/i.test(trimmed)) {
+    msg.rtc = 'OK';
+    msg.message = 'Waktu RTC berhasil disinkronkan dari server NTP';
     hasData = true;
   }
 
@@ -283,12 +313,31 @@ export function processESP32Message(
   }
 
   if (message.wifiIp) {
+    const isNewIp = nextState.wifiConfig.ip !== message.wifiIp;
     nextState.wifiConfig.ip = message.wifiIp;
-    pushLog('WIFI_CONNECT', `ESP32 memperoleh alamat IP: ${message.wifiIp}`, `SSID: ${nextState.wifiConfig.ssid || 'AAA'}`);
+    nextState.wifiConfig.autoDetectedFromSerial = true;
+    if (isNewIp) {
+      pushLog('WIFI_CONNECT', `Alamat IP ESP32 Tercatat Otomatis: ${message.wifiIp}`, `SSID: ${nextState.wifiConfig.ssid || 'AAA'}`);
+    }
+  }
+
+  if (message.wifiGateway) {
+    nextState.wifiGateway = message.wifiGateway;
+    nextState.wifiConfig.gateway = message.wifiGateway;
+    pushLog('INFO', `Gateway Wi-Fi: ${message.wifiGateway}`);
+  }
+
+  if (message.wifiSubnet) {
+    nextState.wifiSubnet = message.wifiSubnet;
+    nextState.wifiConfig.subnet = message.wifiSubnet;
   }
 
   if (message.wifiRssi !== undefined) {
     nextState.wifiRssi = message.wifiRssi;
+  }
+
+  if (message.timeZone) {
+    nextState.timeZone = message.timeZone;
   }
 
   if (message.type === 'WIFI') {

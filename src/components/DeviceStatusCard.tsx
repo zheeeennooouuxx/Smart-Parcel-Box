@@ -73,12 +73,12 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({ state }) => 
         : 'Perangkat Baru Terdeteksi di COM4 (Baud 9600)',
     },
     {
-      name: 'WiFi Hotspot (Station / SoftAP)',
-      role: `SSID: ${state.wifiConfig.ssid || 'AAA'}${state.wifiRssi ? ` • ${state.wifiRssi} dBm` : ''}`,
-      status: (state.connectionType === 'WIFI' && isConnected) || state.wifiRssi ? 'CONNECTED' : isConnected ? 'DETECTED' : 'STANDBY',
-      statusColor: (state.connectionType === 'WIFI' && isConnected) || state.wifiRssi ? 'text-blue-400' : 'text-slate-500',
+      name: `Koneksi WiFi (${state.wifiConfig.ssid || 'AAA'})`,
+      role: `IP: ${state.wifiConfig.ip || '10.86.29.138'} • GW: ${state.wifiGateway || state.wifiConfig.gateway || '10.86.29.155'}`,
+      status: (state.connectionType === 'WIFI' && isConnected) ? 'CONNECTED' : state.wifiConfig.ip ? 'TERDATA' : 'STANDBY',
+      statusColor: (state.connectionType === 'WIFI' && isConnected) ? 'text-emerald-400' : state.wifiConfig.ip ? 'text-cyan-400' : 'text-slate-500',
       icon: Wifi,
-      detail: `IP: ${state.wifiConfig.ip || '192.168.4.1'}${state.wifiRssi ? ` • Sinyal: ${state.wifiRssi} dBm` : ''}`,
+      detail: `IP: ${state.wifiConfig.ip || '10.86.29.138'}${state.wifiGateway ? ` • GW: ${state.wifiGateway}` : ''}${state.wifiRssi ? ` • Sinyal: ${state.wifiRssi} dBm` : ''}`,
     },
     {
       name: 'Modul RTC DS1302',

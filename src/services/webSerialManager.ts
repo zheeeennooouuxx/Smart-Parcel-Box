@@ -88,8 +88,25 @@ export class WebSerialManager {
         flowControl: 'none',
       });
 
+      // Release ESP32 hardware reset lines (DTR=true, RTS=false releases EN pin)
+      if (typeof this.port.setSignals === 'function') {
+        try {
+          await this.port.setSignals({ dataTerminalReady: true, requestToSend: false });
+        } catch {
+          // Non-critical, ignore if hardware driver does not support setSignals
+        }
+      }
+
       this.accumulator.reset();
       this.keepReading = true;
+
+      // Notify UI that COM port is officially OPEN and ready
+      this.callbacks.onStatusChange('CONNECTED');
+      this.callbacks.onDataReceived(
+        `[SISTEM] Port serial ${portName} berhasil DIBUKA pada ${this.currentBaudRate} baud. Menunggu aliran data ESP32...`,
+        null,
+        0
+      );
 
       // 3. Start background reading stream
       this.startReadingLoop();
@@ -105,10 +122,24 @@ export class WebSerialManager {
 
       let friendlyMsg = error.message || 'Gagal membuka port serial.';
       const lower = friendlyMsg.toLowerCase();
-      if (error.name === 'NetworkError' || lower.includes('failed to open') || lower.includes('access denied') || lower.includes('already open')) {
-        friendlyMsg = 'Port COM4 sedang dipakai oleh aplikasi lain (seperti Serial Monitor di Arduino IDE). Harap TUTUP jendela Serial Monitor di Arduino IDE, lalu klik Hubungkan lagi!';
-      } else if (error.name === 'SecurityError' || lower.includes('security') || lower.includes('not allowed') || lower.includes('permission')) {
-        friendlyMsg = 'Izin Web Serial dibatasi oleh iframe. Buka aplikasi di jendela browser penuh (Tab Baru) atau izinkan Serial Port di ikon gembok URL browser.';
+      if (
+        error.name === 'NetworkError' ||
+        lower.includes('failed to open') ||
+        lower.includes('access denied') ||
+        lower.includes('already open') ||
+        lower.includes('busy')
+      ) {
+        friendlyMsg =
+          'Port COM4 sedang dipakai oleh aplikasi lain (Kemungkinan besar: Serial Monitor di Arduino IDE masih terbuka). TUTUP jendela Serial Monitor di Arduino IDE, lalu klik "HUBUNGKAN COM4 SEKARANG"!';
+      } else if (
+        error.name === 'SecurityError' ||
+        lower.includes('security') ||
+        lower.includes('not allowed') ||
+        lower.includes('permission') ||
+        lower.includes('disallowed')
+      ) {
+        friendlyMsg =
+          'Akses port USB diblokir oleh iframe browser. Silakan klik tombol "Buka di Tab Baru / Jendela Penuh" di bilah atas aplikasi, lalu klik Hubungkan lagi!';
       }
 
       this.callbacks.onStatusChange('ERROR', friendlyMsg);

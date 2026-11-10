@@ -181,6 +181,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div className="space-y-3 text-xs font-mono-code">
+            {wifiConfig.ip && (
+              <div className="p-3 rounded-xl bg-gradient-to-r from-blue-950/80 to-cyan-950/80 border border-cyan-500/40 text-cyan-200 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span className="text-[11px]">
+                    IP Tercatat Otomatis: <strong className="text-white">{wifiConfig.ip}</strong> (SSID: {wifiConfig.ssid || 'AAA'})
+                  </span>
+                </div>
+                {connectionType !== 'WIFI' && (
+                  <button
+                    type="button"
+                    onClick={() => onConnectionTypeChange('WIFI')}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-[10px] shrink-0 cursor-pointer shadow-sm"
+                  >
+                    Beralih ke WiFi ➜
+                  </button>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="text-slate-300 font-semibold block mb-1">
                 SSID Hotspot Target:
@@ -200,13 +220,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
                 <label className="text-slate-300 font-semibold block mb-1">
-                  IP Gateway ESP32:
+                  IP ESP32:
                 </label>
                 <input
                   type="text"
                   value={wifiConfig.ip}
                   onChange={(e) => onWifiConfigChange({ ip: e.target.value })}
-                  placeholder="192.168.4.1"
+                  placeholder="10.86.29.138"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 font-bold outline-none focus:border-cyan-500"
                 />
               </div>
@@ -220,6 +240,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onChange={(e) => onWifiConfigChange({ port: Number(e.target.value) })}
                   placeholder="80"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">
+                  Gateway:
+                </label>
+                <input
+                  type="text"
+                  value={wifiConfig.gateway || ''}
+                  onChange={(e) => onWifiConfigChange({ gateway: e.target.value })}
+                  placeholder="10.86.29.155"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-300 outline-none focus:border-cyan-500 text-xs"
+                />
+              </div>
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">
+                  Subnet Mask:
+                </label>
+                <input
+                  type="text"
+                  value={wifiConfig.subnet || ''}
+                  onChange={(e) => onWifiConfigChange({ subnet: e.target.value })}
+                  placeholder="255.255.255.0"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-300 outline-none focus:border-cyan-500 text-xs"
                 />
               </div>
             </div>

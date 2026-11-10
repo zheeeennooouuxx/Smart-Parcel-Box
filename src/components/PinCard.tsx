@@ -235,10 +235,11 @@ export const PinCard: React.FC<PinCardProps> = ({ state, onConnectClick }) => {
           </div>
           <div>
             <div className="text-[10px] uppercase font-bold text-slate-500 font-mono-code">
-              WAKTU RTC DS1302
+              WAKTU RTC {state.timeZone ? `(${state.timeZone})` : 'DS1302'}
             </div>
             <div className="text-sm md:text-base font-bold text-cyan-300 font-mono-code">
-              {state.time && state.date ? `${state.time}` : '—'}
+              {state.time ? `${state.time}` : '—'}
+              {state.date && <span className="text-[11px] text-slate-400 font-normal ml-1.5">({state.date})</span>}
             </div>
           </div>
         </div>

@@ -28,7 +28,7 @@ import {
 import { processESP32Message, parseAnySerialLine } from './services/serialParser';
 import { WebSerialManager } from './services/webSerialManager';
 import { WifiHotspotManager } from './services/wifiHotspotManager';
-import { AlertTriangle, X, Usb } from 'lucide-react';
+import { AlertTriangle, X, Usb, CheckCircle2, ExternalLink, HelpCircle, Radio, Wifi } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -37,6 +37,11 @@ export default function App() {
   const [isSimulated, setIsSimulated] = useState<boolean>(false);
   const [alertBanner, setAlertBanner] = useState<{ message: string; type: 'error' | 'warning' | 'info' } | null>(null);
   const [newDeviceBanner, setNewDeviceBanner] = useState<boolean>(true);
+  const [showConnectHelpModal, setShowConnectHelpModal] = useState<boolean>(false);
+
+  // Detect if running inside an iframe preview
+  const isIframe = typeof window !== 'undefined' && window.self !== window.top;
+  const isSerialSupported = WebSerialManager.isSupported();
 
   // Core application state
   const [state, setState] = useState<ParcelBoxState>({
@@ -180,6 +185,14 @@ export default function App() {
         setLogs((prevLogs) => [...newLogs, ...prevLogs].slice(0, 499));
       }
 
+      // If a new WiFi IP was detected from Serial, notify user with quick switch action
+      if (parsedMessage.wifiIp && parsedMessage.wifiIp !== prevState.wifiConfig.ip) {
+        setAlertBanner({
+          message: `Alamat IP ESP32 Tercatat: ${parsedMessage.wifiIp} (SSID: ${parsedMessage.wifiSsid || prevState.wifiConfig.ssid || 'AAA'}). Konfigurasi WiFi Hotspot otomatis diperbarui!`,
+          type: 'info',
+        });
+      }
+
       return nextState;
     });
   }, [playChime]);
@@ -312,6 +325,26 @@ export default function App() {
     }));
   };
 
+  // Switch to WiFi Hotspot mode with recorded IP
+  const handleSwitchToWifi = async (targetIp?: string) => {
+    setAlertBanner(null);
+    const effectiveIp = targetIp || state.wifiConfig.ip;
+    if (effectiveIp) {
+      handleWifiConfigChange({ ip: effectiveIp });
+    }
+    await handleDisconnect();
+    handleConnectionTypeChange('WIFI');
+    // Connect to WiFi
+    setTimeout(async () => {
+      if (wifiManagerRef.current) {
+        await wifiManagerRef.current.connect(
+          { ...state.wifiConfig, ip: effectiveIp || state.wifiConfig.ip },
+          isSimulated
+        );
+      }
+    }, 150);
+  };
+
   // Update WiFi Config
   const handleWifiConfigChange = (newCfg: Partial<WifiConfig>) => {
     setState((prev) => ({
@@ -413,24 +446,101 @@ export default function App() {
         onTestPingWifi={handleTestPingWifi}
       />
 
+      {/* Iframe Warning Banner (Web Serial requires top-level tab) */}
+      {isIframe && (
+        <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950 border-b border-amber-500/50 px-4 py-2 text-xs font-mono-code text-amber-200 flex flex-wrap items-center justify-between gap-2 shadow-lg">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold font-tech tracking-wider border border-amber-500/30">
+              PENTING: AKSES PORT USB SERIAL
+            </span>
+            <span>
+              Aplikasi sedang dibuka dalam preview frame. Browser Chrome memerlukan Tab Baru agar dialog USB COM4 dapat dibuka.
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={typeof window !== 'undefined' ? window.location.href : '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-tech font-bold text-xs tracking-wider flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+            >
+              <span>BUKA DI TAB BARU ↗</span>
+            </a>
+            <button
+              onClick={() => setShowConnectHelpModal(true)}
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 transition-all cursor-pointer"
+            >
+              Bantuan Koneksi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Browser Support Warning Banner */}
+      {!isSerialSupported && (
+        <div className="bg-rose-950/90 border-b border-rose-800 px-4 py-2 text-xs font-mono-code text-rose-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>
+              Browser ini tidak mendukung Web Serial API. Gunakan <strong>Google Chrome</strong> atau <strong>Microsoft Edge</strong> pada PC/Laptop.
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setIsSimulated(true);
+              serialManagerRef.current?.startSimulation(43821, '084291');
+            }}
+            className="px-3 py-1 rounded-lg bg-rose-800 hover:bg-rose-700 text-white font-tech font-bold text-xs cursor-pointer"
+          >
+            Aktifkan Mode Simulasi COM4
+          </button>
+        </div>
+      )}
+
       {/* Alert Banner if active */}
       {alertBanner && (
-        <div className={`px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs font-mono-code ${
+        <div className={`px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs font-mono-code shadow-md ${
           alertBanner.type === 'error'
             ? 'bg-rose-950/90 border-b border-rose-800 text-rose-200'
+            : alertBanner.type === 'info'
+            ? 'bg-gradient-to-r from-blue-950/95 via-[#0b1c3b] to-slate-900 border-b border-cyan-500/50 text-cyan-200'
             : 'bg-amber-950/90 border-b border-amber-800 text-amber-200'
         }`}>
           <div className="flex items-center gap-2 max-w-2xl">
-            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
-            <span>{alertBanner.message}</span>
+            {alertBanner.type === 'info' ? (
+              <Wifi className="w-4 h-4 shrink-0 text-cyan-400 animate-pulse" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+            )}
+            <span>
+              {alertBanner.message.includes('Failed to fetch') || alertBanner.message.includes('timeout')
+                ? 'Koneksi WiFi HTTP gagal karena firmware ESP32 mengirim data melalui USB Serial. Klik tombol di kanan untuk menghubungkan via COM4!'
+                : alertBanner.message}
+            </span>
           </div>
           <div className="flex items-center gap-2">
+            {alertBanner.type === 'info' ? (
+              <button
+                onClick={() => handleSwitchToWifi()}
+                className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <Wifi className="w-3.5 h-3.5" />
+                <span>BERALIH KE WIFI HOTSPOT ({state.wifiConfig.ip})</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleConnectSerial}
+                className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1 cursor-pointer"
+              >
+                <Usb className="w-3.5 h-3.5" />
+                <span>Gunakan USB Serial (COM4)</span>
+              </button>
+            )}
             <button
-              onClick={handleConnectSerial}
-              className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1 cursor-pointer"
+              onClick={() => setActiveTab('settings')}
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 cursor-pointer"
             >
-              <Usb className="w-3.5 h-3.5" />
-              <span>Gunakan USB Serial (COM4)</span>
+              Menu WiFi
             </button>
             <button
               onClick={() => setAlertBanner(null)}
@@ -463,6 +573,12 @@ export default function App() {
             >
               <Usb className="w-3.5 h-3.5" />
               <span>HUBUNGKAN COM4 SEKARANG</span>
+            </button>
+            <button
+              onClick={() => setShowConnectHelpModal(true)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs border border-slate-700 cursor-pointer"
+            >
+              Panduan
             </button>
             <button
               onClick={() => setNewDeviceBanner(false)}
@@ -562,6 +678,7 @@ export default function App() {
               onConnect={handleConnect}
               onDisconnect={handleDisconnect}
               onGoToPinAccess={() => setActiveTab('pin-access')}
+              onSwitchToWifi={handleSwitchToWifi}
             />
           )}
 
@@ -597,6 +714,123 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Troubleshooting & Connection Help Modal */}
+      {showConnectHelpModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0b1329] border border-cyan-500/40 rounded-3xl max-w-xl w-full p-6 space-y-5 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                  <Usb className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white font-tech tracking-wide">
+                    PANDUAN KONEKSI ESP32 (COM4)
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono-code">
+                    Solusi Mengatasi Port Terkunci & Gagal Terhubung
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowConnectHelpModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs font-mono-code">
+              {/* Check 1: Arduino IDE Serial Monitor */}
+              <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/40 space-y-2">
+                <div className="flex items-center gap-2 text-amber-300 font-bold font-tech text-sm">
+                  <span className="w-5 h-5 rounded-full bg-amber-500/30 flex items-center justify-center text-xs">1</span>
+                  <span>TUTUP SERIAL MONITOR DI ARDUINO IDE</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  Windows hanya mengizinkan <strong>1 aplikasi</strong> membuka port <strong>COM4</strong> dalam satu waktu. Jika jendela Serial Monitor di Arduino IDE masih aktif (atau sedang upload sketch), browser Chrome akan diblokir dengan pesan <em>"Failed to open serial port"</em>.
+                </p>
+                <div className="text-[11px] text-amber-400 font-semibold">
+                  👉 Solusi: Tutup jendela Serial Monitor di Arduino IDE Anda sekarang.
+                </div>
+              </div>
+
+              {/* Check 2: Iframe Browser Permission */}
+              <div className="p-3.5 rounded-2xl bg-blue-950/30 border border-blue-500/40 space-y-2">
+                <div className="flex items-center gap-2 text-cyan-300 font-bold font-tech text-sm">
+                  <span className="w-5 h-5 rounded-full bg-blue-500/30 flex items-center justify-center text-xs">2</span>
+                  <span>BUKA DI TAB BARU (JIKA DI DALAM IFRAME PREVIEW)</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  Kebijakan keamanan Google Chrome memblokir pop-up pemilihan port hardware USB Serial jika halaman berjalan di dalam <code>iframe</code>. Buka halaman ini secara langsung di jendela browser utama.
+                </p>
+                <a
+                  href={typeof window !== 'undefined' ? window.location.href : '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-tech font-bold text-xs"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Buka Aplikasi di Tab Baru ↗</span>
+                </a>
+              </div>
+
+              {/* Check 3: WiFi Hotspot vs USB Serial */}
+              <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-700/60 space-y-2">
+                <div className="flex items-center gap-2 text-slate-200 font-bold font-tech text-sm">
+                  <span className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-xs">3</span>
+                  <span>KENAPA WIFI MENAMPILKAN "FAILED TO FETCH"?</span>
+                </div>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  Sketch firmware yang Anda upload ke ESP32 saat ini mencetak data ke USB Serial (<code>Serial.println</code>) dan tidak memiliki WebServer HTTP pada port 80. Oleh karena itu, gunakan opsi <strong>USB Serial (COM4)</strong>, bukan WiFi HTTP.
+                </p>
+              </div>
+
+              {/* Hardware Summary */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 flex flex-col gap-1">
+                <div>• Perangkat: <strong>ESP32-D0WD-V3</strong> (MAC: <code className="text-cyan-300">f4:65:0b:57:13:bc</code>)</div>
+                <div>• Target Port: <strong>COM4</strong> (Baud Rate: <strong>9600</strong>)</div>
+                <div>• Hotspot SSID: <strong>AAA</strong> (Status: Station Mode ESP32)</div>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowConnectHelpModal(false);
+                  setIsSimulated(true);
+                  serialManagerRef.current?.startSimulation(43821, '084291');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900/60 border border-purple-700/50 text-purple-300 text-xs font-mono-code cursor-pointer"
+              >
+                Coba Mode Simulasi COM4
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowConnectHelpModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white text-xs font-mono-code cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowConnectHelpModal(false);
+                    handleConnectSerial();
+                  }}
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-tech font-bold text-xs shadow-md shadow-cyan-500/20 cursor-pointer"
+                >
+                  HUBUNGKAN COM4 SEKARANG
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

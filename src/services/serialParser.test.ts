@@ -286,3 +286,60 @@ test('parseAnySerialLine and processESP32Message support user exact ESP32 sketch
   const { nextState: stateWithMac } = processESP32Message(stateWithChip, macLine!);
   assert.equal(stateWithMac.macAddress, 'f4:65:0b:57:13:bc');
 });
+
+test('parseAnySerialLine and processESP32Message automatically record 10.86.29.138 IP, Gateway, WITA time, and PIN 714502', () => {
+  const serialDump = [
+    '================================',
+    '     WIFI BERHASIL TERHUBUNG',
+    '================================',
+    'Nama Wi-Fi  : AAA',
+    'Alamat IP   : 10.86.29.138',
+    'Gateway     : 10.86.29.155',
+    'Subnet Mask : 255.255.255.0',
+    'Kekuatan    : -16 dBm',
+    '================================',
+    'SINKRONISASI WAKTU WITA',
+    '================================',
+    'Mengambil waktu dari server NTP...',
+    'Zona waktu: WITA (UTC+8)',
+    '..',
+    'WAKTU RTC BERHASIL DISINKRONKAN!',
+    'Tanggal WITA : 11/11/2026',
+    'Jam WITA     : 01:04:50',
+    '================================',
+    'Zona Waktu    : WITA (Makassar)',
+    'Tanggal       : 11/11/2026',
+    'Waktu         : 01:04:50',
+    'Periode PIN   : 41536',
+    'PIN saat ini  : 714502',
+    '================================',
+  ];
+
+  let testState: ParcelBoxState = {
+    ...mockBaseState,
+  };
+
+  for (const line of serialDump) {
+    const parsed = parseAnySerialLine(line);
+    if (parsed) {
+      const res = processESP32Message(testState, parsed);
+      testState = res.nextState;
+    }
+  }
+
+  // Verify IP and network are recorded
+  assert.equal(testState.wifiConfig.ip, '10.86.29.138');
+  assert.equal(testState.wifiConfig.ssid, 'AAA');
+  assert.equal(testState.wifiConfig.gateway, '10.86.29.155');
+  assert.equal(testState.wifiConfig.subnet, '255.255.255.0');
+  assert.equal(testState.wifiConfig.autoDetectedFromSerial, true);
+  assert.equal(testState.wifiRssi, -16);
+
+  // Verify PIN & Time
+  assert.equal(testState.pin, '714502');
+  assert.equal(testState.period, 41536);
+  assert.equal(testState.pinStatus, 'ACTIVE');
+  assert.equal(testState.date, '11/11/2026');
+  assert.equal(testState.time, '01:04:50');
+  assert.equal(testState.rtcStatus, 'OK');
+});

@@ -22,7 +22,10 @@ export interface ESP32Message {
   message?: string;
   wifiSsid?: string;
   wifiIp?: string;
+  wifiGateway?: string;
+  wifiSubnet?: string;
   wifiRssi?: number;
+  timeZone?: string;
   chipInfo?: string;
   macAddress?: string;
   [key: string]: unknown;
@@ -35,8 +38,11 @@ export interface WifiConfig {
   port: number;
   ssid: string;
   password?: string;
+  gateway?: string;
+  subnet?: string;
   intervalMs: number;
   protocol: 'HTTP_POLL' | 'WEBSOCKET';
+  autoDetectedFromSerial?: boolean;
 }
 
 export interface ParcelBoxState {
@@ -46,6 +52,9 @@ export interface ParcelBoxState {
   baudRate: number;
   wifiConfig: WifiConfig;
   wifiRssi?: number;
+  wifiGateway?: string;
+  wifiSubnet?: string;
+  timeZone?: string;
   chipInfo?: string;
   macAddress?: string;
   rtcStatus: RTCStatus;

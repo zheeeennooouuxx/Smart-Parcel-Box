@@ -179,10 +179,28 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Wifi className="w-3.5 h-3.5" />
               <span>WiFi Hotspot</span>
+              {wifiConfig.ip && (
+                <span className="text-[10px] font-mono-code px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hidden sm:inline">
+                  {wifiConfig.ip}
+                </span>
+              )}
             </button>
           </div>
 
           {getStatusBadge()}
+
+          {/* Quick-switch to WiFi button when IP was auto-detected from Serial */}
+          {connectionType === 'SERIAL' && wifiConfig.ip && (
+            <button
+              onClick={() => setShowWifiModal(true)}
+              title={`IP ESP32 Tercatat: ${wifiConfig.ip}. Klik untuk membuka menu WiFi Hotspot.`}
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-300 text-xs font-mono-code transition-all shadow-sm cursor-pointer"
+            >
+              <Signal className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span>IP ESP32: <strong>{wifiConfig.ip}</strong></span>
+              <span className="text-[10px] text-cyan-400/80 underline ml-1">Menu WiFi ➜</span>
+            </button>
+          )}
 
           {isSimulated && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-purple-950/60 border border-purple-700/50 text-purple-300 text-xs font-mono-code">
@@ -195,7 +213,7 @@ export const Header: React.FC<HeaderProps> = ({
           {connectionType === 'WIFI' ? (
             <button
               onClick={() => setShowWifiModal(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-mono-code transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-mono-code transition-colors cursor-pointer"
             >
               <Signal className="w-3 h-3 text-cyan-400" />
               <span className="truncate max-w-[140px] font-bold text-cyan-300">
@@ -310,6 +328,27 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             <div className="space-y-4 text-xs font-mono-code">
+              {/* Highlight card if IP was auto-detected from Serial */}
+              {wifiConfig.ip && (
+                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-950/80 via-[#0a1b38] to-cyan-950/80 border border-cyan-500/40 shadow-inner space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-cyan-300 font-bold font-tech flex items-center gap-1.5 text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-cyan-400" />
+                      ALAMAT IP TERSINKRON DARI SERIAL MONITOR
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                      OTOMATIS
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
+                    <div>• Alamat IP: <strong className="text-cyan-200">{wifiConfig.ip}</strong></div>
+                    <div>• SSID: <strong className="text-white">{wifiConfig.ssid || 'AAA'}</strong></div>
+                    <div>• Gateway: <strong>{wifiConfig.gateway || '—'}</strong></div>
+                    <div>• Subnet: <strong>{wifiConfig.subnet || '255.255.255.0'}</strong></div>
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="text-slate-300 font-semibold block mb-1">
                   Nama Hotspot / SSID ESP32:
@@ -318,24 +357,24 @@ export const Header: React.FC<HeaderProps> = ({
                   type="text"
                   value={wifiConfig.ssid}
                   onChange={(e) => onWifiConfigChange({ ssid: e.target.value })}
-                  placeholder="SMART-PARCEL-BOX-AP"
+                  placeholder="AAA"
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500"
                 />
                 <span className="text-[11px] text-slate-500 mt-1 block">
-                  Password bawaan ESP32: <code>12345678</code>
+                  Password Hotspot ESP32: <code>123456789</code> (Hotspot: "AAA")
                 </span>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2">
                   <label className="text-slate-300 font-semibold block mb-1">
-                    IP Address Hotspot:
+                    IP Address ESP32:
                   </label>
                   <input
                     type="text"
                     value={wifiConfig.ip}
                     onChange={(e) => onWifiConfigChange({ ip: e.target.value })}
-                    placeholder="192.168.4.1"
+                    placeholder="10.86.29.138"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500 font-bold"
                   />
                 </div>
@@ -349,6 +388,33 @@ export const Header: React.FC<HeaderProps> = ({
                     onChange={(e) => onWifiConfigChange({ port: Number(e.target.value) })}
                     placeholder="80"
                     className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">
+                    Gateway:
+                  </label>
+                  <input
+                    type="text"
+                    value={wifiConfig.gateway || ''}
+                    onChange={(e) => onWifiConfigChange({ gateway: e.target.value })}
+                    placeholder="10.86.29.155"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-300 outline-none focus:border-cyan-500 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">
+                    Subnet Mask:
+                  </label>
+                  <input
+                    type="text"
+                    value={wifiConfig.subnet || ''}
+                    onChange={(e) => onWifiConfigChange({ subnet: e.target.value })}
+                    placeholder="255.255.255.0"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-slate-300 outline-none focus:border-cyan-500 text-xs"
                   />
                 </div>
               </div>
