@@ -12,14 +12,19 @@ export type RTCStatus = 'OK' | 'ERROR' | 'UNKNOWN';
 export type PINValidityStatus = 'ACTIVE' | 'EXPIRED' | 'INVALID' | 'WAITING_DEVICE';
 
 export interface ESP32Message {
-  type?: 'STATUS' | 'ERROR' | 'DOOR' | 'PIN' | 'RTC' | 'RAW' | string;
+  type?: 'STATUS' | 'ERROR' | 'DOOR' | 'PIN' | 'RTC' | 'RAW' | 'WIFI' | string;
   rtc?: 'OK' | 'ERROR' | string;
-  date?: string; // YYYY-MM-DD
+  date?: string; // YYYY-MM-DD or DD/MM/YYYY
   time?: string; // HH:mm:ss
   period?: number;
   pin?: string | number;
   door?: 'OPEN' | 'CLOSED' | string;
   message?: string;
+  wifiSsid?: string;
+  wifiIp?: string;
+  wifiRssi?: number;
+  chipInfo?: string;
+  macAddress?: string;
   [key: string]: unknown;
 }
 
@@ -41,6 +46,8 @@ export interface ParcelBoxState {
   baudRate: number;
   wifiConfig: WifiConfig;
   wifiRssi?: number;
+  chipInfo?: string;
+  macAddress?: string;
   rtcStatus: RTCStatus;
   date?: string;
   time?: string;
@@ -62,6 +69,8 @@ export type LogEventType =
   | 'PIN_CHANGE'
   | 'DOOR_OPEN'
   | 'DOOR_CLOSED'
+  | 'WIFI_CONNECT'
+  | 'WIFI_DISCONNECT'
   | 'ERROR'
   | 'INFO';
 

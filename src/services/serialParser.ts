@@ -131,7 +131,7 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
   const msg: ESP32Message = { type: 'RAW' };
   let hasData = false;
 
-  // Extract PIN (e.g. "PIN: 084291", "PIN=084291", "PIN AKTIF: 084291", "PIN SAAT INI: 084291", "084291", "KODE: 084291")
+  // Extract PIN (e.g. "PIN: 084291", "PIN saat ini  : 084291", "PIN AKTIF: 084291", "084291", "KODE: 084291")
   const pinMatch = trimmed.match(/(?:PIN|PIN\s*AKTIF|PIN\s*SAAT\s*INI|PIN\s*DINAMIS|PASSCODE|CODE|KODE|KEY)\s*[:=]?\s*([0-9]{4,8})/i)
     || trimmed.match(/\bPIN\b.*?([0-9]{6})/i)
     || trimmed.match(/^([0-9]{6})$/);
@@ -140,24 +140,57 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
     hasData = true;
   }
 
-  // Extract Period (e.g. "PERIODE: 43821", "PERIOD: 43821", "STEP: 43821", "SIKLUS: 43821")
-  const periodMatch = trimmed.match(/(?:PERIOD|PERIODE|STEP|SIKLUS)\s*[:=]?\s*([0-9]+)/i);
+  // Extract Period (e.g. "Periode PIN   : 43821", "PERIODE: 43821", "PERIOD: 43821", "STEP: 43821", "SIKLUS: 43821")
+  const periodMatch = trimmed.match(/(?:PERIOD|PERIODE|STEP|SIKLUS)\s*(?:PIN)?\s*[:=]?\s*([0-9]+)/i);
   if (periodMatch && periodMatch[1]) {
     msg.period = Number(periodMatch[1]);
     hasData = true;
   }
 
-  // Extract Date (YYYY-MM-DD)
-  const dateMatch = trimmed.match(/\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/);
+  // Extract Date (DD/MM/YYYY or YYYY-MM-DD)
+  const dateMatch = trimmed.match(/(?:Tanggal\s*[:=]?\s*)?([0-9]{2}[\/-][0-9]{2}[\/-][0-9]{4})\b/i)
+    || trimmed.match(/\b([0-9]{4}-[0-9]{2}-[0-9]{2})\b/);
   if (dateMatch && dateMatch[1]) {
     msg.date = dateMatch[1];
     hasData = true;
   }
 
   // Extract Time (HH:mm:ss)
-  const timeMatch = trimmed.match(/\b([0-9]{2}:[0-9]{2}:[0-9]{2})\b/);
+  const timeMatch = trimmed.match(/(?:Waktu\s*[:=]?\s*)?([0-9]{2}:[0-9]{2}:[0-9]{2})\b/i);
   if (timeMatch && timeMatch[1]) {
     msg.time = timeMatch[1];
+    hasData = true;
+  }
+
+  // Extract WiFi SSID (e.g. "Nama Wi-Fi : AAA")
+  const ssidMatch = trimmed.match(/(?:Nama\s*Wi-?Fi|SSID)\s*[:=]?\s*(.+)$/i);
+  if (ssidMatch && ssidMatch[1]) {
+    msg.wifiSsid = ssidMatch[1].trim();
+    hasData = true;
+  }
+
+  // Extract WiFi IP Address (e.g. "Alamat IP  : 192.168.43.123")
+  const ipMatch = trimmed.match(/(?:Alamat\s*IP|IP\s*Address|Local\s*IP|IP)\s*[:=]?\s*([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})/i);
+  if (ipMatch && ipMatch[1]) {
+    msg.wifiIp = ipMatch[1].trim();
+    hasData = true;
+  }
+
+  // Extract WiFi Signal RSSI (e.g. "Kekuatan   : -55 dBm")
+  const rssiMatch = trimmed.match(/(?:Kekuatan|Signal|RSSI)\s*[:=]?\s*(-?[0-9]+)\s*(?:dBm)?/i);
+  if (rssiMatch && rssiMatch[1]) {
+    msg.wifiRssi = Number(rssiMatch[1]);
+    hasData = true;
+  }
+
+  // Extract WiFi connection events
+  if (/WIFI\s*BERHASIL\s*TERHUBUNG/i.test(trimmed)) {
+    msg.type = 'WIFI';
+    msg.message = 'WiFi berhasil terhubung ke Hotspot';
+    hasData = true;
+  } else if (/Wi-?Fi\s*terputus!/i.test(trimmed)) {
+    msg.type = 'WIFI';
+    msg.message = 'WiFi terputus dari Hotspot';
     hasData = true;
   }
 
@@ -171,12 +204,26 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
   }
 
   // Extract RTC status
-  if (/\b(?:RTC_ERROR|RTC_NOT_READY)\b/i.test(trimmed) || /RTC\s*[:=]?\s*ERROR/i.test(trimmed)) {
+  if (/\b(?:RTC_ERROR|RTC_NOT_READY)\b/i.test(trimmed) || /RTC\s*(?:DS1302)?\s*ERROR/i.test(trimmed)) {
     msg.rtc = 'ERROR';
     msg.message = 'RTC NOT READY';
     hasData = true;
-  } else if (/\b(?:RTC_OK|RTC_READY)\b/i.test(trimmed) || /RTC\s*[:=]?\s*OK/i.test(trimmed) || (msg.date && msg.time)) {
+  } else if (/RTC\s*(?:DS1302)?\s*SIAP!/i.test(trimmed) || /\b(?:RTC_OK|RTC_READY)\b/i.test(trimmed) || /RTC\s*[:=]?\s*OK/i.test(trimmed) || (msg.date && msg.time)) {
     msg.rtc = 'OK';
+    hasData = true;
+  }
+
+  // Extract MAC Address (e.g. "MAC: f4:65:0b:57:13:bc")
+  const macMatch = trimmed.match(/(?:MAC|STA_MAC|AP_MAC)\s*[:=]?\s*([0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5})/i);
+  if (macMatch && macMatch[1]) {
+    msg.macAddress = macMatch[1].toLowerCase();
+    hasData = true;
+  }
+
+  // Extract Chip model (e.g. "Chip type: ESP32-D0WD-V3" or "Connected to ESP32 on COM4")
+  const chipMatch = trimmed.match(/(?:Chip\s*(?:type)?|Model)\s*[:=]?\s*([A-Za-z0-9\-_]+(?:\s*\(.*?\))?)/i);
+  if (chipMatch && chipMatch[1]) {
+    msg.chipInfo = chipMatch[1].trim();
     hasData = true;
   }
 
@@ -198,6 +245,7 @@ export function processESP32Message(
   const newLogs: ActivityLog[] = [];
   const nextState: ParcelBoxState = {
     ...currentState,
+    wifiConfig: { ...currentState.wifiConfig },
     lastUpdated: Date.now(),
     rxPacketCount: currentState.rxPacketCount + 1,
   };
@@ -217,6 +265,38 @@ export function processESP32Message(
   if (nextState.connectionStatus !== 'CONNECTED') {
     nextState.connectionStatus = 'CONNECTED';
     pushLog('CONNECT', 'ESP32 berhasil terhubung dan stream data aktif');
+  }
+
+  // Process Hardware chip & MAC address
+  if (message.chipInfo) {
+    nextState.chipInfo = message.chipInfo;
+  }
+  if (message.macAddress) {
+    nextState.macAddress = message.macAddress;
+    pushLog('INFO', `Perangkat ESP32 Terdeteksi: MAC ${message.macAddress}`);
+  }
+
+  // Process WiFi Hotspot / Station info from ESP32
+  if (message.wifiSsid) {
+    nextState.wifiConfig.ssid = message.wifiSsid;
+    pushLog('INFO', `ESP32 terhubung ke Wi-Fi Hotspot: ${message.wifiSsid}`);
+  }
+
+  if (message.wifiIp) {
+    nextState.wifiConfig.ip = message.wifiIp;
+    pushLog('WIFI_CONNECT', `ESP32 memperoleh alamat IP: ${message.wifiIp}`, `SSID: ${nextState.wifiConfig.ssid || 'AAA'}`);
+  }
+
+  if (message.wifiRssi !== undefined) {
+    nextState.wifiRssi = message.wifiRssi;
+  }
+
+  if (message.type === 'WIFI') {
+    if (message.message?.includes('terputus')) {
+      pushLog('WIFI_DISCONNECT', 'Koneksi Wi-Fi ESP32 terputus dari Hotspot');
+    } else if (message.message?.includes('berhasil')) {
+      pushLog('WIFI_CONNECT', 'Wi-Fi ESP32 berhasil terhubung ke Hotspot', nextState.wifiConfig.ssid || 'AAA');
+    }
   }
 
   // 1. Process RTC status and time

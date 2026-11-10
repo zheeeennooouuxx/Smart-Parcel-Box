@@ -226,3 +226,63 @@ test('parseAnySerialLine extracts data from WiFi Hotspot HTTP and WebSocket tele
   assert.equal(parsedReply?.pin, '084291');
   assert.equal(parsedReply?.period, 43821);
 });
+
+test('parseAnySerialLine and processESP32Message support user exact ESP32 sketch lines and Hotspot AAA', () => {
+  // Test WiFi credentials and IP parsing
+  const wifiSsidLine = parseAnySerialLine('Nama Wi-Fi : AAA');
+  assert.equal(wifiSsidLine?.wifiSsid, 'AAA');
+
+  const wifiIpLine = parseAnySerialLine('Alamat IP  : 192.168.43.120');
+  assert.equal(wifiIpLine?.wifiIp, '192.168.43.120');
+
+  const wifiRssiLine = parseAnySerialLine('Kekuatan   : -58 dBm');
+  assert.equal(wifiRssiLine?.wifiRssi, -58);
+
+  // Test Time and PIN lines from user's sketch
+  const tglLine = parseAnySerialLine('Tanggal       : 09/11/2026');
+  assert.equal(tglLine?.date, '09/11/2026');
+
+  const timeLine = parseAnySerialLine('Waktu         : 20:30:15');
+  assert.equal(timeLine?.time, '20:30:15');
+
+  const periodLine = parseAnySerialLine('Periode PIN   : 43821');
+  assert.equal(periodLine?.period, 43821);
+
+  const pinLine = parseAnySerialLine('PIN saat ini  : 084291');
+  assert.equal(pinLine?.pin, '084291');
+
+  const rtcLine = parseAnySerialLine('RTC DS1302 SIAP!');
+  assert.equal(rtcLine?.rtc, 'OK');
+
+  const doorOpenLine = parseAnySerialLine('PINTU TERBUKA');
+  assert.equal(doorOpenLine?.door, 'OPEN');
+
+  const doorClosedLine = parseAnySerialLine('PINTU TERTUTUP');
+  assert.equal(doorClosedLine?.door, 'CLOSED');
+
+  // Verify processESP32Message automatically sets IP and SSID in state
+  let testState: ParcelBoxState = {
+    ...mockBaseState,
+  };
+
+  const { nextState: stateWithWifi } = processESP32Message(testState, wifiIpLine!);
+  assert.equal(stateWithWifi.wifiConfig.ip, '192.168.43.120');
+  assert.equal(stateWithWifi.connectionStatus, 'CONNECTED');
+
+  const { nextState: stateWithPin } = processESP32Message(stateWithWifi, pinLine!);
+  assert.equal(stateWithPin.pin, '084291');
+  assert.equal(stateWithPin.pinStatus, 'ACTIVE');
+
+  // Test MAC address and Chip model parsing
+  const macLine = parseAnySerialLine('MAC: f4:65:0b:57:13:bc');
+  assert.equal(macLine?.macAddress, 'f4:65:0b:57:13:bc');
+
+  const chipLine = parseAnySerialLine('Chip type: ESP32-D0WD-V3');
+  assert.equal(chipLine?.chipInfo, 'ESP32-D0WD-V3');
+
+  const { nextState: stateWithChip } = processESP32Message(stateWithPin, chipLine!);
+  assert.equal(stateWithChip.chipInfo, 'ESP32-D0WD-V3');
+
+  const { nextState: stateWithMac } = processESP32Message(stateWithChip, macLine!);
+  assert.equal(stateWithMac.macAddress, 'f4:65:0b:57:13:bc');
+});

@@ -63,22 +63,22 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({ state }) => 
 
   const devices = [
     {
-      name: 'ESP32 Controller',
-      role: 'Pengelola RTC, Reed Switch, WiFi/USB, Buzzer',
-      status: isConnected ? 'ONLINE' : isConnecting ? 'CONNECTING' : 'OFFLINE',
-      statusColor: isConnected ? 'text-emerald-400' : isConnecting ? 'text-amber-400' : 'text-slate-500',
+      name: `ESP32 Controller (${state.chipInfo || 'ESP32-D0WD-V3'})`,
+      role: `Port: COM4 • MAC: ${state.macAddress || 'f4:65:0b:57:13:bc'}`,
+      status: isConnected ? 'ONLINE' : isConnecting ? 'CONNECTING' : 'SIAP DIHUBUNGKAN',
+      statusColor: isConnected ? 'text-emerald-400' : isConnecting ? 'text-amber-400' : 'text-cyan-400',
       icon: Cpu,
       detail: isConnected 
-        ? (state.connectionType === 'WIFI' ? `WiFi Hotspot Gateway (${state.wifiConfig.ip})` : `${state.portInfo || 'USB Serial'} @${state.baudRate} baud`)
-        : 'Belum Terhubung',
+        ? (state.connectionType === 'WIFI' ? `WiFi Hotspot Gateway (${state.wifiConfig.ip})` : `${state.portInfo || 'COM4'} @${state.baudRate} baud`)
+        : 'Perangkat Baru Terdeteksi di COM4 (Baud 9600)',
     },
     {
-      name: 'WiFi Hotspot (SoftAP)',
-      role: `SSID: ${state.wifiConfig.ssid}`,
-      status: state.connectionType === 'WIFI' && isConnected ? 'CONNECTED' : 'STANDBY',
-      statusColor: state.connectionType === 'WIFI' && isConnected ? 'text-blue-400' : 'text-slate-500',
+      name: 'WiFi Hotspot (Station / SoftAP)',
+      role: `SSID: ${state.wifiConfig.ssid || 'AAA'}${state.wifiRssi ? ` • ${state.wifiRssi} dBm` : ''}`,
+      status: (state.connectionType === 'WIFI' && isConnected) || state.wifiRssi ? 'CONNECTED' : isConnected ? 'DETECTED' : 'STANDBY',
+      statusColor: (state.connectionType === 'WIFI' && isConnected) || state.wifiRssi ? 'text-blue-400' : 'text-slate-500',
       icon: Wifi,
-      detail: `IP ${state.wifiConfig.ip}:${state.wifiConfig.port} • ${state.wifiConfig.protocol}`,
+      detail: `IP: ${state.wifiConfig.ip || '192.168.4.1'}${state.wifiRssi ? ` • Sinyal: ${state.wifiRssi} dBm` : ''}`,
     },
     {
       name: 'Modul RTC DS1302',

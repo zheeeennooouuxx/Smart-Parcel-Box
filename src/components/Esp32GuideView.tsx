@@ -16,6 +16,7 @@ import {
 
 export const Esp32GuideView: React.FC = () => {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
+  const [activeSketchTab, setActiveSketchTab] = useState<'user' | 'webserver'>('user');
 
   const handleCopy = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
@@ -23,290 +24,399 @@ export const Esp32GuideView: React.FC = () => {
     setTimeout(() => setCopiedSection(null), 2000);
   };
 
-  const esp32DualModeCode = `/*
+  const userSketch = `/*
  * ==============================================================
- * SMART PARCEL BOX - FIRMWARE ESP32 CONTROLLER (DUAL MODE)
+ * SMART PARCEL BOX - KODE FIRMWARE ESP32 ANDA (HOTSPOT "AAA")
  * ==============================================================
- * Fitur Komunikasi:
- * 1. WiFi Hotspot SoftAP (SSID: "SMART-PARCEL-BOX-AP", IP: 192.168.4.1)
- *    - WebServer port 80 dengan header CORS (Access-Control-Allow-Origin: *)
- *    - Endpoint GET  /api/status  : Mengembalikan JSON status lengkap
- *    - Endpoint GET  /api/pin     : Mengembalikan JSON PIN 6-digit aktif
- *    - Endpoint POST /api/command : Menerima perintah (PING, STATUS, BEEP, DOOR)
- * 2. Serial USB (Baud 9600): Stream JSON satu baris untuk Web Serial API
- * 3. Hardware UART2 (GPIO16 RX, GPIO17 TX): Komunikasi ke Arduino Uno
- * 4. RTC DS1302: Basis waktu fisik interval 12 jam
- * 5. HMAC-SHA256: Algoritma kalkulasi PIN dinamis 6-digit (TOTP)
- * 6. Reed Switch (GPIO4): Deteksi magnetik buka/tutup pintu box
- * 7. Buzzer (GPIO5): Indikator audio
+ * Konfigurasi Pin:
+ * - UART2 ke Uno: RXD2 (GPIO16), TXD2 (GPIO17)
+ * - RTC DS1302  : DAT (GPIO19), CLK (GPIO18), RST/CE (GPIO21)
+ * - Reed Switch : PIN_REED (GPIO22)
+ * - Buzzer      : PIN_BUZZER (GPIO26)
+ * - Wi-Fi STA   : SSID "AAA", Sandi "123456789"
+ * - Serial USB  : 9600 Baud (Terbaca langsung oleh Dashboard ini!)
  * ==============================================================
  */
 
-#include <Arduino.h>
 #include <WiFi.h>
-#include <WebServer.h>
+#include <ThreeWire.h>
 #include <RtcDS1302.h>
-#include <mbedtls/md.h>
+#include <SHA256.h>
+#include <string.h>
 
-// Definisi Pin Modul RTC DS1302
-#define RTC_RST_PIN 14
-#define RTC_DAT_PIN 12
-#define RTC_CLK_PIN 13
+// 1. KONFIGURASI PIN ESP32
+#define RXD2 16
+#define TXD2 17
+#define RTC_DAT 19
+#define RTC_CLK 18
+#define RTC_RST 21
+#define PIN_REED 22
+#define PIN_BUZZER 26
 
-ThreeWire myWire(RTC_DAT_PIN, RTC_CLK_PIN, RTC_RST_PIN);
-RtcDS1302<ThreeWire> Rtc(myWire);
+// 2. KONFIGURASI SISTEM
+const uint32_t INTERVAL_PIN = 43200UL; // 12 Jam
+const unsigned long INTERVAL_BACA = 1000UL;
+const unsigned long INTERVAL_KIRIM = 2000UL;
+const char SECRET_KEY[] = "SMARTPARCEL-CHANGE-THIS-SECRET-KEY-2026";
 
-// Pin Sensor Reed Switch & Buzzer
-#define REED_SWITCH_PIN 4
-#define BUZZER_PIN 5
+// 3. KONFIGURASI WIFI
+const char* WIFI_SSID = "AAA";
+const char* WIFI_PASSWORD = "123456789";
+const unsigned long INTERVAL_WIFI = 10000UL;
+unsigned long waktuCobaWifi = 0;
+bool wifiTerhubungSebelumnya = false;
 
-// Konfigurasi WiFi Hotspot (SoftAP)
-const char* WIFI_SSID = "SMART-PARCEL-BOX-AP";
-const char* WIFI_PASS = "12345678";
-WebServer server(80);
+// 4. INISIALISASI RTC DS1302
+ThreeWire myWire(RTC_DAT, RTC_CLK, RTC_RST);
+RtcDS1302<ThreeWire> rtc(myWire);
+bool rtcTersedia = false;
 
-// Secret Key HMAC-SHA256 (Harus SAMA PERSIS dengan Arduino Uno)
-const char* SECRET_KEY = "SMART_PARCEL_SECRET_KEY_2026";
-const unsigned long INTERVAL_12_HOURS = 43200UL; // 12 jam dalam detik
+// 5. VARIABEL SISTEM
+unsigned long waktuBaca = 0;
+unsigned long waktuKirim = 0;
+bool statusPintuStabil;
+bool statusPintuMentah;
+unsigned long waktuDebounce = 0;
+const unsigned long DEBOUNCE_DELAY = 50;
+char bufferSerial[40];
+byte indeksSerial = 0;
+uint32_t periodeTerakhir = 0;
 
-// Serial2 ke Arduino Uno (GPIO16 = RX, GPIO17 = TX)
-HardwareSerial ArduinoSerial(2);
-
-// Status Cache
-int lastReedState = -1;
-unsigned long lastTelemetryMillis = 0;
-unsigned long currentPeriod = 0;
-char currentPin[7] = "000000";
-char currentDate[12] = "2026-11-09";
-char currentTime[10] = "12:00:00";
-bool isRtcValid = false;
-
-// Fungsi HMAC-SHA256 menghasilkan PIN 6 digit
-void generateHmacPin(unsigned long period, char* outPin) {
-  byte hmacResult[32];
-  mbedtls_md_context_t ctx;
-  mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
-
-  mbedtls_md_init(&ctx);
-  mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(md_type), 1);
-  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)SECRET_KEY, strlen(SECRET_KEY));
-  mbedtls_md_hmac_update(&ctx, (const unsigned char*)&period, sizeof(period));
-  mbedtls_md_hmac_finish(&ctx, hmacResult);
-  mbedtls_md_free(&ctx);
-
-  // Dynamic Truncation (TOTP standard RFC 6238)
-  int offset = hmacResult[31] & 0x0F;
-  unsigned long binary = 
-    ((hmacResult[offset] & 0x7F) << 24) |
-    ((hmacResult[offset + 1] & 0xFF) << 16) |
-    ((hmacResult[offset + 2] & 0xFF) << 8) |
-    (hmacResult[offset + 3] & 0xFF);
-
-  unsigned long pinNum = binary % 1000000;
-  snprintf(outPin, 7, "%06lu", pinNum);
+void mulaiWifi() {
+  Serial.println();
+  Serial.println("Menghubungkan ke Wi-Fi...");
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  waktuCobaWifi = millis();
 }
 
-// Buat format string JSON status lengkap
-String buildStatusJson() {
-  int reedState = digitalRead(REED_SWITCH_PIN);
-  const char* doorStateStr = (reedState == HIGH) ? "OPEN" : "CLOSED";
-  
-  if (!isRtcValid) {
-    return "{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC NOT READY\\",\\"door\\":\\"" + String(doorStateStr) + "\\"}";
+void periksaWifi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    if (!wifiTerhubungSebelumnya) {
+      wifiTerhubungSebelumnya = true;
+      Serial.println();
+      Serial.println("============================");
+      Serial.println(" WIFI BERHASIL TERHUBUNG");
+      Serial.println("============================");
+      Serial.print("Nama Wi-Fi : ");
+      Serial.println(WIFI_SSID);
+      Serial.print("Alamat IP  : ");
+      Serial.println(WiFi.localIP());
+      Serial.print("Kekuatan   : ");
+      Serial.print(WiFi.RSSI());
+      Serial.println(" dBm");
+      Serial.println("============================");
+    }
+    return;
   }
-
-  char buf[256];
-  snprintf(buf, sizeof(buf),
-    "{\\"type\\":\\"STATUS\\",\\"rtc\\":\\"OK\\",\\"date\\":\\"%s\\",\\"time\\":\\"%s\\",\\"period\\":%lu,\\"pin\\":\\"%s\\",\\"door\\":\\"%s\\"}",
-    currentDate, currentTime, currentPeriod, currentPin, doorStateStr
-  );
-  return String(buf);
-}
-
-// Helper untuk menambahkan header CORS ke respon HTTP
-void setCorsHeaders() {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
-}
-
-// HTTP Handler: /api/status
-void handleApiStatus() {
-  setCorsHeaders();
-  String json = buildStatusJson();
-  server.send(200, "application/json", json);
-}
-
-// HTTP Handler: /api/pin
-void handleApiPin() {
-  setCorsHeaders();
-  char buf[128];
-  snprintf(buf, sizeof(buf),
-    "{\\"pin\\":\\"%s\\",\\"period\\":%lu,\\"status\\":\\"%s\\"}",
-    currentPin, currentPeriod, isRtcValid ? "ACTIVE" : "INVALID"
-  );
-  server.send(200, "application/json", String(buf));
-}
-
-// HTTP Handler: /api/command
-void handleApiCommand() {
-  setCorsHeaders();
-  String cmd = "";
-  if (server.hasArg("plain")) {
-    String body = server.arg("plain");
-    // Simple command extract or plain string
-    if (body.indexOf("PING") >= 0) cmd = "PING";
-    else if (body.indexOf("STATUS") >= 0) cmd = "STATUS";
-    else if (body.indexOf("BEEP") >= 0) cmd = "BEEP";
-    else if (body.indexOf("OPEN") >= 0) cmd = "OPEN";
-    else if (body.indexOf("CLOSE") >= 0) cmd = "CLOSE";
-    else cmd = body;
-  } else if (server.hasArg("cmd")) {
-    cmd = server.arg("cmd");
+  if (wifiTerhubungSebelumnya) {
+    wifiTerhubungSebelumnya = false;
+    Serial.println("Wi-Fi terputus!");
   }
+  if (millis() - waktuCobaWifi >= INTERVAL_WIFI) {
+    waktuCobaWifi = millis();
+    Serial.println("Mencoba menghubungkan Wi-Fi...");
+    WiFi.reconnect();
+  }
+}
 
-  cmd.trim();
-  cmd.toUpperCase();
+bool periksaValiditasRTC() {
+  if (!rtc.IsDateTimeValid() || !rtc.GetIsRunning()) return false;
+  RtcDateTime sekarang = rtc.GetDateTime();
+  if (!sekarang.IsValid()) return false;
+  if (sekarang.Year() < 2020 || sekarang.Year() > 2099) return false;
+  return true;
+}
 
-  if (cmd == "PING") {
-    server.send(200, "application/json", "{\\"type\\":\\"PONG\\",\\"message\\":\\"ESP32 HOTSPOT ALIVE\\"}");
-  } else if (cmd == "BEEP") {
-    digitalWrite(BUZZER_PIN, HIGH); delay(150); digitalWrite(BUZZER_PIN, LOW);
-    server.send(200, "application/json", "{\\"type\\":\\"ACK\\",\\"message\\":\\"BEEP EXECUTED\\"}");
+uint32_t buatPIN(uint32_t periode) {
+  uint8_t pesan[8];
+  for (int i = 7; i >= 0; i--) {
+    pesan[i] = periode & 0xFF;
+    periode >>= 8;
+  }
+  SHA256 sha;
+  uint8_t hasilHash[32];
+  sha.resetHMAC(SECRET_KEY, strlen(SECRET_KEY));
+  sha.update(pesan, sizeof(pesan));
+  sha.finalizeHMAC(SECRET_KEY, strlen(SECRET_KEY), hasilHash, sizeof(hasilHash));
+  uint8_t offset = hasilHash[31] & 0x0F;
+  uint32_t kode =
+    ((uint32_t)(hasilHash[offset] & 0x7F) << 24) |
+    ((uint32_t)hasilHash[offset + 1] << 16) |
+    ((uint32_t)hasilHash[offset + 2] << 8) |
+    ((uint32_t)hasilHash[offset + 3]);
+  return kode % 1000000UL;
+}
+
+void bacaInformasiWaktu() {
+  if (!rtcTersedia) {
+    Serial.println("RTC ERROR!");
+    return;
+  }
+  RtcDateTime sekarang = rtc.GetDateTime();
+  if (!periksaValiditasRTC()) {
+    rtcTersedia = false;
+    Serial.println("RTC ERROR!");
+    return;
+  }
+  uint32_t timestamp = sekarang.Unix32Time();
+  uint32_t periode = timestamp / INTERVAL_PIN;
+  uint32_t pin = buatPIN(periode);
+
+  char tanggal[20];
+  snprintf(tanggal, sizeof(tanggal), "%02d/%02d/%04d", sekarang.Day(), sekarang.Month(), sekarang.Year());
+  char jam[12];
+  snprintf(jam, sizeof(jam), "%02d:%02d:%02d", sekarang.Hour(), sekarang.Minute(), sekarang.Second());
+  char pinFormat[7];
+  snprintf(pinFormat, sizeof(pinFormat), "%06lu", (unsigned long)pin);
+
+  Serial.println("============================");
+  Serial.print("Tanggal       : "); Serial.println(tanggal);
+  Serial.print("Waktu         : "); Serial.println(jam);
+  Serial.print("Periode PIN   : "); Serial.println(periode);
+  Serial.print("PIN saat ini  : "); Serial.println(pinFormat);
+  Serial.println("============================");
+
+  periodeTerakhir = periode;
+}
+
+void kirimPeriodeArduino() {
+  if (!rtcTersedia) {
+    Serial2.println("RTC_ERROR");
+    return;
+  }
+  RtcDateTime sekarang = rtc.GetDateTime();
+  if (!sekarang.IsValid()) {
+    Serial2.println("RTC_ERROR");
+    rtcTersedia = false;
+    return;
+  }
+  uint32_t timestamp = sekarang.Unix32Time();
+  uint32_t periode = timestamp / INTERVAL_PIN;
+  Serial2.print("STEP:");
+  Serial2.println(periode);
+  periodeTerakhir = periode;
+}
+
+void kirimStatusPintu(bool status) {
+  if (status == HIGH) {
+    Serial.println("PINTU TERBUKA");
+    Serial2.println("DOOR_OPEN");
   } else {
-    server.send(200, "application/json", buildStatusJson());
+    Serial.println("PINTU TERTUTUP");
+    Serial2.println("DOOR_CLOSED");
   }
 }
 
-// HTTP Handler: Preflight OPTIONS request
-void handleOptions() {
-  setCorsHeaders();
-  server.send(204);
+void periksaPintu() {
+  bool pembacaan = digitalRead(PIN_REED);
+  if (pembacaan != statusPintuMentah) {
+    statusPintuMentah = pembacaan;
+    waktuDebounce = millis();
+  }
+  if (millis() - waktuDebounce >= DEBOUNCE_DELAY) {
+    if (statusPintuMentah != statusPintuStabil) {
+      statusPintuStabil = statusPintuMentah;
+      kirimStatusPintu(statusPintuStabil);
+    }
+  }
+}
+
+void bunyiBuzzer(bool berhasil) {
+  if (berhasil) {
+    tone(PIN_BUZZER, 2000, 150);
+    delay(200);
+    tone(PIN_BUZZER, 2500, 150);
+  } else {
+    tone(PIN_BUZZER, 500, 500);
+  }
+}
+
+void prosesPerintah(String perintah) {
+  perintah.trim();
+  if (perintah == "PING") {
+    Serial2.println("PONG");
+  } else if (perintah == "BEEP_GRANTED") {
+    bunyiBuzzer(true);
+  } else if (perintah == "BEEP_DENIED") {
+    bunyiBuzzer(false);
+  }
+}
+
+void komunikasiArduino() {
+  while (Serial2.available()) {
+    char karakter = Serial2.read();
+    if (karakter == '\n') {
+      bufferSerial[indeksSerial] = '\0';
+      if (indeksSerial > 0) prosesPerintah(String(bufferSerial));
+      indeksSerial = 0;
+    } else if (karakter != '\r') {
+      if (indeksSerial < sizeof(bufferSerial) - 1) {
+        bufferSerial[indeksSerial++] = karakter;
+      } else {
+        indeksSerial = 0;
+      }
+    }
+  }
 }
 
 void setup() {
-  // 1. Serial USB ke Browser Web Serial API
   Serial.begin(9600);
-  
-  // 2. Serial2 UART2 ke Arduino Uno (GPIO16 RX, GPIO17 TX)
-  ArduinoSerial.begin(9600, SERIAL_8N1, 16, 17);
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  delay(1000);
+  mulaiWifi();
+  pinMode(PIN_REED, INPUT_PULLUP);
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
 
-  pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
-  pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
+  Serial.println();
+  Serial.println("============================");
+  Serial.println(" SMART PARCEL BOX - ESP32");
+  Serial.println("============================");
 
-  // 3. Inisialisasi WiFi Hotspot (SoftAP Mode)
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(WIFI_SSID, WIFI_PASS);
-  IPAddress apIP = WiFi.softAPIP(); // Default: 192.168.4.1
-
-  Serial.println("");
-  Serial.println("=========================================");
-  Serial.println("SMART PARCEL BOX ESP32 FIRMWARE READY");
-  Serial.printf("WiFi Hotspot SSID: %s\\n", WIFI_SSID);
-  Serial.printf("WiFi Hotspot IP  : %s\\n", apIP.toString().c_str());
-  Serial.println("=========================================");
-
-  // 4. Setup Rute HTTP Server
-  server.on("/api/status", HTTP_GET, handleApiStatus);
-  server.on("/api/pin", HTTP_GET, handleApiPin);
-  server.on("/api/command", HTTP_POST, handleApiCommand);
-  server.on("/api/command", HTTP_OPTIONS, handleOptions);
-  server.on("/api/status", HTTP_OPTIONS, handleOptions);
-  server.onNotFound([]() {
-    setCorsHeaders();
-    if (server.method() == HTTP_OPTIONS) {
-      server.send(204);
-    } else {
-      server.send(404, "application/json", "{\\"error\\":\\"Endpoint Not Found\\"}");
-    }
-  });
-  server.begin();
-
-  // 5. Inisialisasi RTC DS1302
-  Rtc.Begin();
-  if (Rtc.GetIsWriteProtected()) {
-    Rtc.SetIsWriteProtected(false);
+  rtc.Begin();
+  rtcTersedia = periksaValiditasRTC();
+  if (rtcTersedia) {
+    Serial.println("RTC DS1302 SIAP!");
+  } else {
+    Serial.println("RTC DS1302 ERROR!");
   }
-  if (!Rtc.GetIsRunning()) {
-    Rtc.SetIsRunning(true);
-  }
+
+  statusPintuMentah = digitalRead(PIN_REED);
+  statusPintuStabil = statusPintuMentah;
+  kirimStatusPintu(statusPintuStabil);
+
+  Serial.println("UART2 siap.");
+  Serial.println("Sistem ESP32 siap.");
+  Serial.println("============================");
+
+  waktuBaca = millis();
+  waktuKirim = millis() - INTERVAL_KIRIM;
 }
 
 void loop() {
-  // Handle request HTTP masuk dari browser via WiFi Hotspot
-  server.handleClient();
+  periksaWifi();
+  komunikasiArduino();
+  periksaPintu();
 
-  // 1. Baca Reed Switch
-  int reedState = digitalRead(REED_SWITCH_PIN);
-  const char* doorStateStr = (reedState == HIGH) ? "OPEN" : "CLOSED";
-
-  if (reedState != lastReedState) {
-    lastReedState = reedState;
-    if (reedState == HIGH) {
-      ArduinoSerial.println("DOOR_OPEN");
-    } else {
-      ArduinoSerial.println("DOOR_CLOSED");
-    }
-    // Kirim event instan ke Serial USB
-    Serial.printf("{\\"type\\":\\"DOOR\\",\\"door\\":\\"%s\\"}\\n", doorStateStr);
+  if (millis() - waktuBaca >= INTERVAL_BACA) {
+    waktuBaca = millis();
+    bacaInformasiWaktu();
   }
 
-  // 2. Baca Pesan dari Arduino Uno via UART2
-  while (ArduinoSerial.available()) {
-    String msg = ArduinoSerial.readStringUntil('\\n');
-    msg.trim();
-    if (msg == "BEEP_GRANTED") {
-      digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
-      delay(80);
-      digitalWrite(BUZZER_PIN, HIGH); delay(100); digitalWrite(BUZZER_PIN, LOW);
-    } else if (msg == "BEEP_DENIED") {
-      digitalWrite(BUZZER_PIN, HIGH); delay(400); digitalWrite(BUZZER_PIN, LOW);
-    }
+  if (millis() - waktuKirim >= INTERVAL_KIRIM) {
+    waktuKirim = millis();
+    kirimPeriodeArduino();
   }
+}`;
 
-  // 3. Baca Perintah Masuk dari Web Serial USB
-  while (Serial.available()) {
-    String cmd = Serial.readStringUntil('\\n');
-    cmd.trim();
-    cmd.toUpperCase();
-    if (cmd == "PING") {
-      Serial.println("{\\"type\\":\\"PONG\\",\\"message\\":\\"ESP32 ALIVE\\"}");
-    } else if (cmd == "STATUS") {
-      lastTelemetryMillis = 0;
-    } else if (cmd == "BEEP") {
-      digitalWrite(BUZZER_PIN, HIGH); delay(150); digitalWrite(BUZZER_PIN, LOW);
-      Serial.println("{\\"type\\":\\"ACK\\",\\"message\\":\\"BEEP EXECUTED\\"}");
-    }
-  }
+  const webServerVariant = `/*
+ * ==============================================================
+ * KODE DENGAN DUKUNGAN WIRELESS WEBSERVER REST API
+ * (Sama persis dengan kode Anda + WebServer Port 80 untuk Dashboard)
+ * ==============================================================
+ * Cukup tambahkan #include <WebServer.h>, rute /api/status, dan
+ * server.handleClient() agar dashboard bisa mengakses via WiFi tanpa kabel USB!
+ * ==============================================================
+ */
 
-  // 4. Update Waktu RTC & Telemetri Rutin setiap 2 detik
-  if (millis() - lastTelemetryMillis >= 2000) {
-    lastTelemetryMillis = millis();
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ThreeWire.h>
+#include <RtcDS1302.h>
+#include <SHA256.h>
 
-    if (!Rtc.IsDateTimeValid()) {
-      isRtcValid = false;
-      Serial.println("{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC NOT READY\\"}");
-      ArduinoSerial.println("RTC_ERROR");
-      return;
-    }
+#define RXD2 16
+#define TXD2 17
+#define RTC_DAT 19
+#define RTC_CLK 18
+#define RTC_RST 21
+#define PIN_REED 22
+#define PIN_BUZZER 26
 
-    isRtcValid = true;
-    RtcDateTime now = Rtc.GetDateTime();
-    unsigned long epochSeconds = now.Epoch32Time();
-    unsigned long newPeriod = epochSeconds / INTERVAL_12_HOURS;
+const char* WIFI_SSID = "AAA";
+const char* WIFI_PASSWORD = "123456789";
+const uint32_t INTERVAL_PIN = 43200UL;
+const char SECRET_KEY[] = "SMARTPARCEL-CHANGE-THIS-SECRET-KEY-2026";
 
-    if (newPeriod != currentPeriod) {
-      currentPeriod = newPeriod;
-      generateHmacPin(currentPeriod, currentPin);
-      ArduinoSerial.printf("STEP:%lu\\n", currentPeriod);
-    }
+ThreeWire myWire(RTC_DAT, RTC_CLK, RTC_RST);
+RtcDS1302<ThreeWire> rtc(myWire);
+WebServer server(80);
 
-    snprintf(currentDate, sizeof(currentDate), "%04u-%02u-%02u", now.Year(), now.Month(), now.Day());
-    snprintf(currentTime, sizeof(currentTime), "%02u:%02u:%02u", now.Hour(), now.Minute(), now.Second());
+// Status Telemetri untuk Web
+char tglStr[20] = "09/11/2026";
+char jamStr[12] = "00:00:00";
+char pinStr[7] = "000000";
+uint32_t perAktif = 0;
+bool statusPintu = false;
+bool rtcTersedia = false;
 
-    // Kirim juga ke USB Serial
-    Serial.println(buildStatusJson());
+// Dynamic PIN HMAC-SHA256
+uint32_t hitungPIN(uint32_t periode) {
+  uint8_t pesan[8];
+  for (int i = 7; i >= 0; i--) { pesan[i] = periode & 0xFF; periode >>= 8; }
+  SHA256 sha;
+  uint8_t hash[32];
+  sha.resetHMAC(SECRET_KEY, strlen(SECRET_KEY));
+  sha.update(pesan, sizeof(pesan));
+  sha.finalizeHMAC(SECRET_KEY, strlen(SECRET_KEY), hash, sizeof(hash));
+  uint8_t offset = hash[31] & 0x0F;
+  uint32_t kode = ((uint32_t)(hash[offset] & 0x7F) << 24) |
+                  ((uint32_t)hash[offset + 1] << 16) |
+                  ((uint32_t)hash[offset + 2] << 8) |
+                  ((uint32_t)hash[offset + 3]);
+  return kode % 1000000UL;
+}
+
+void setCors() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+void handleStatus() {
+  setCors();
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+    "{\\"type\\":\\"STATUS\\",\\"rtc\\":\\"%s\\",\\"date\\":\\"%s\\",\\"time\\":\\"%s\\",\\"period\\":%lu,\\"pin\\":\\"%s\\",\\"door\\":\\"%s\\"}",
+    rtcTersedia ? "OK" : "ERROR", tglStr, jamStr, (unsigned long)perAktif, pinStr, statusPintu ? "OPEN" : "CLOSED"
+  );
+  server.send(200, "application/json", buf);
+}
+
+void setup() {
+  Serial.begin(9600);
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  pinMode(PIN_REED, INPUT_PULLUP);
+  pinMode(PIN_BUZZER, OUTPUT);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  rtc.Begin();
+  rtcTersedia = rtc.IsDateTimeValid() && rtc.GetIsRunning();
+
+  // Setup rute HTTP REST API untuk Dashboard
+  server.on("/api/status", HTTP_GET, handleStatus);
+  server.on("/api/status", HTTP_OPTIONS, []() { setCors(); server.send(204); });
+  server.begin();
+
+  Serial.println("SMART PARCEL BOX + WEBSERVER SIAP");
+}
+
+void loop() {
+  server.handleClient(); // Melayani request dari Web Dashboard
+
+  statusPintu = digitalRead(PIN_REED);
+
+  if (rtcTersedia) {
+    RtcDateTime skrg = rtc.GetDateTime();
+    perAktif = skrg.Unix32Time() / INTERVAL_PIN;
+    uint32_t p = hitungPIN(perAktif);
+    snprintf(pinStr, sizeof(pinStr), "%06lu", (unsigned long)p);
+    snprintf(tglStr, sizeof(tglStr), "%02d/%02d/%04d", skrg.Day(), skrg.Month(), skrg.Year());
+    snprintf(jamStr, sizeof(jamStr), "%02d:%02d:%02d", skrg.Hour(), skrg.Minute(), skrg.Second());
   }
 }`;
 
@@ -425,22 +535,48 @@ void loop() {
         </div>
       </div>
 
-      {/* ESP32 Dual Mode Code Section */}
+      {/* Tab Switcher for Sketches */}
+      <div className="flex items-center gap-2 p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-tech">
+        <button
+          onClick={() => setActiveSketchTab('user')}
+          className={`flex-1 py-2 px-3 rounded-lg font-bold transition-all ${
+            activeSketchTab === 'user'
+              ? 'bg-cyan-500 text-slate-950 shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          KODE ESP32 ANDA (HOTSPOT "AAA" + USB SERIAL)
+        </button>
+        <button
+          onClick={() => setActiveSketchTab('webserver')}
+          className={`flex-1 py-2 px-3 rounded-lg font-bold transition-all ${
+            activeSketchTab === 'webserver'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          KODE DENGAN REST API (+ WEBSERVER WIRELESS)
+        </button>
+      </div>
+
+      {/* Active ESP32 Code Section */}
       <div className="rounded-2xl bg-[#0a0f1d] border border-slate-800/80 overflow-hidden shadow-xl">
         <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileCode className="w-4 h-4 text-cyan-400" />
-            <span className="text-xs font-bold text-white font-tech">ESP32_SmartParcelBox_DualMode.ino</span>
+            <span className="text-xs font-bold text-white font-tech">
+              {activeSketchTab === 'user' ? 'ESP32_SmartParcelBox_StationMode.ino' : 'ESP32_SmartParcelBox_WebServer.ino'}
+            </span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-gradient-to-r from-blue-950 to-cyan-950 text-cyan-300 border border-cyan-800/60 font-mono-code">
-              WiFi Hotspot + USB Serial
+              {activeSketchTab === 'user' ? 'Hotspot "AAA" • Serial USB 9600' : 'Hotspot "AAA" • WebServer Port 80 + Serial'}
             </span>
           </div>
 
           <button
-            onClick={() => handleCopy(esp32DualModeCode, 'esp32')}
+            onClick={() => handleCopy(activeSketchTab === 'user' ? userSketch : webServerVariant, activeSketchTab)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono-code transition-colors"
           >
-            {copiedSection === 'esp32' ? (
+            {copiedSection === activeSketchTab ? (
               <>
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
                 <span className="text-emerald-400">Tersalin!</span>
@@ -455,7 +591,7 @@ void loop() {
         </div>
 
         <pre className="p-4 text-[11px] font-mono-code text-slate-300 overflow-x-auto max-h-96 bg-black/60 leading-relaxed">
-          <code>{esp32DualModeCode}</code>
+          <code>{activeSketchTab === 'user' ? userSketch : webServerVariant}</code>
         </pre>
       </div>
 

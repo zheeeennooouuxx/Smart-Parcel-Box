@@ -216,7 +216,7 @@ export class WebSerialManager {
     this.simDoorState = 'CLOSED';
     this.simRtcOk = true;
 
-    this.callbacks.onPortSelected('Virtual ESP32 Simulator (USB COM3)');
+    this.callbacks.onPortSelected('ESP32 COM4 (ESP32-D0WD-V3 • MAC: f4:65:0b:57:13:bc)');
     this.callbacks.onStatusChange('CONNECTING');
 
     // Send first status packet after 400ms to simulate connection handshake

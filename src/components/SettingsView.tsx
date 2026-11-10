@@ -183,17 +183,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="space-y-3 text-xs font-mono-code">
             <div>
               <label className="text-slate-300 font-semibold block mb-1">
-                SSID Hotspot ESP32:
+                SSID Hotspot Target:
               </label>
               <input
                 type="text"
                 value={wifiConfig.ssid}
                 onChange={(e) => onWifiConfigChange({ ssid: e.target.value })}
-                placeholder="SMART-PARCEL-BOX-AP"
+                placeholder="AAA"
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500"
               />
               <span className="text-[11px] text-slate-500 mt-1 block">
-                Password Hotspot Bawaan: <code>12345678</code>
+                Password Hotspot: <code>123456789</code> (Hotspot Perangkat "AAA")
               </span>
             </div>
 
@@ -422,38 +422,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div className="p-6 rounded-2xl bg-[#0c1326] border border-slate-800/80 space-y-4">
         <div className="flex items-center gap-2 text-white font-bold font-tech text-sm">
           <Server className="w-4 h-4 text-cyan-400" />
-          PANDUAN MENGHUBUNGKAN VIA WIFI HOTSPOT ESP32
+          PANDUAN MENGHUBUNGKAN VIA WIFI HOTSPOT "AAA"
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono-code">
           <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
             <div className="text-cyan-400 font-bold">LANGKAH 1</div>
-            <div className="text-slate-300 font-semibold">Nyalakan ESP32</div>
+            <div className="text-slate-300 font-semibold">Aktifkan Hotspot "AAA"</div>
             <p className="text-slate-400 text-[11px] leading-relaxed">
-              Pastikan sketch firmware ESP32 sudah berjalan dan memancarkan SoftAP <code>SMART-PARCEL-BOX-AP</code>.
+              Pastikan Hotspot di perangkat HP/Laptop Anda aktif dengan nama SSID <code>AAA</code> dan kata sandi <code>123456789</code>.
             </p>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
             <div className="text-cyan-400 font-bold">LANGKAH 2</div>
-            <div className="text-slate-300 font-semibold">Sambungkan HP/Laptop</div>
+            <div className="text-slate-300 font-semibold">Nyalakan ESP32</div>
             <p className="text-slate-400 text-[11px] leading-relaxed">
-              Buka menu WiFi pada komputer atau smartphone Anda, pilih <code>SMART-PARCEL-BOX-AP</code>, lalu masukkan password: <code>12345678</code>.
+              ESP32 akan otomatis menghubungkan diri ke Hotspot <code>AAA</code> dan memperoleh alamat IP lokal dari jaringan tersebut.
             </p>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
             <div className="text-cyan-400 font-bold">LANGKAH 3</div>
-            <div className="text-slate-300 font-semibold">Cek IP Gateway</div>
+            <div className="text-slate-300 font-semibold">Dapatkan Alamat IP</div>
             <p className="text-slate-400 text-[11px] leading-relaxed">
-              IP gateway standar ESP32 SoftAP adalah <code>192.168.4.1</code> pada port <code>80</code>.
+              Alamat IP ESP32 dapat dilihat pada Serial Monitor (misal: <code>192.168.43.x</code>) atau default gateway <code>192.168.4.1</code>. Masukkan IP ke kolom konfigurasi.
             </p>
           </div>
 
           <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
             <div className="text-cyan-400 font-bold">LANGKAH 4</div>
-            <div className="text-slate-300 font-semibold">Klik "CONNECT WIFI"</div>
+            <div className="text-slate-300 font-semibold">Klik "HUBUNGKAN HOTSPOT"</div>
             <p className="text-slate-400 text-[11px] leading-relaxed">
-              Dashboard akan otomatis menarik status, PIN dinamis 6 digit, status pintu, dan waktu RTC secara live!
+              Dashboard akan otomatis menarik status, PIN dinamis 6 digit HMAC-SHA256, status pintu, dan waktu RTC secara live!
             </p>
           </div>
         </div>

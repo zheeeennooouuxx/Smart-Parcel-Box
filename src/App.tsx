@@ -36,17 +36,21 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isSimulated, setIsSimulated] = useState<boolean>(false);
   const [alertBanner, setAlertBanner] = useState<{ message: string; type: 'error' | 'warning' | 'info' } | null>(null);
+  const [newDeviceBanner, setNewDeviceBanner] = useState<boolean>(true);
 
   // Core application state
   const [state, setState] = useState<ParcelBoxState>({
     connectionStatus: 'DISCONNECTED',
     connectionType: 'SERIAL',
-    portInfo: undefined,
+    portInfo: 'COM4',
     baudRate: 9600,
+    chipInfo: 'ESP32-D0WD-V3 (rev v3.1)',
+    macAddress: 'f4:65:0b:57:13:bc',
     wifiConfig: {
       ip: '192.168.4.1',
       port: 80,
-      ssid: 'SMART-PARCEL-BOX-AP',
+      ssid: 'AAA',
+      password: '123456789',
       intervalMs: 2000,
       protocol: 'HTTP_POLL',
     },
@@ -414,6 +418,34 @@ export default function App() {
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* New Device Ready Banner */}
+      {state.connectionStatus === 'DISCONNECTED' && newDeviceBanner && (
+        <div className="bg-gradient-to-r from-blue-950/90 via-[#0a1835] to-slate-900 border-b border-cyan-500/40 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono-code shadow-md">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            <span className="text-cyan-300 font-bold font-tech">PERANGKAT ESP32 BARU SIAP DIHUBUNGKAN:</span>
+            <span className="text-slate-300">
+              Port <strong>COM4</strong> • Chip: <strong>ESP32-D0WD-V3</strong> (MAC: <code className="text-cyan-300">f4:65:0b:57:13:bc</code>) @9600 Baud
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConnect}
+              className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md shadow-cyan-500/25 flex items-center gap-1.5 cursor-pointer"
+            >
+              HUBUNGKAN COM4 SEKARANG
+            </button>
+            <button
+              onClick={() => setNewDeviceBanner(false)}
+              aria-label="Tutup Banner Perangkat Baru"
+              className="p-1 text-slate-400 hover:text-white rounded cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

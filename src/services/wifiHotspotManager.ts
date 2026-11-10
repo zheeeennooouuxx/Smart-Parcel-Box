@@ -18,7 +18,8 @@ export class WifiHotspotManager {
   private config: WifiConfig = {
     ip: '192.168.4.1',
     port: 80,
-    ssid: 'SMART-PARCEL-BOX-AP',
+    ssid: 'AAA',
+    password: '123456789',
     intervalMs: 2000,
     protocol: 'HTTP_POLL',
   };
