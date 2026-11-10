@@ -260,7 +260,7 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-tech font-bold shadow-md shadow-cyan-500/20"
             >
               {connectionType === 'WIFI' ? <Signal className="w-3.5 h-3.5" /> : <Usb className="w-3.5 h-3.5" />}
-              <span>{connectionType === 'WIFI' ? 'Connect WiFi' : 'Connect Port'}</span>
+              <span>{connectionType === 'WIFI' ? 'Connect WiFi' : 'Connect COM4'}</span>
             </button>
           )}
         </div>

@@ -196,17 +196,17 @@ export const PinCard: React.FC<PinCardProps> = ({ state, onConnectClick }) => {
               </h3>
               <p className="text-xs text-slate-400 mt-1.5 max-w-md mx-auto">
                 {isConnecting
-                  ? 'Port serial terbuka. Menunggu paket status JSON pertama dari ESP32...'
-                  : 'ESP32 belum terhubung via USB Serial. Hubungkan kabel USB dan klik tombol CONNECT DEVICE di atas.'}
+                  ? 'Port serial terbuka. Menunggu transmisi data telemetri pertama dari ESP32...'
+                  : 'ESP32 terdeteksi di port COM4. Pastikan Serial Monitor Arduino IDE telah ditutup agar COM4 tidak terkunci, lalu klik tombol di bawah.'}
               </p>
             </div>
 
             {isDisconnected && (
               <button
                 onClick={onConnectClick}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/50 text-xs font-bold font-tech tracking-wider transition-all"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech tracking-wider text-xs transition-all shadow-md shadow-cyan-500/20 cursor-pointer"
               >
-                <span>HUBUNGKAN ESP32 SEKARANG</span>
+                <span>HUBUNGKAN ESP32 (COM4)</span>
               </button>
             )}
           </div>

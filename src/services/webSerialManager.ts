@@ -97,12 +97,21 @@ export class WebSerialManager {
       return true;
     } catch (err: unknown) {
       const error = err as Error;
-      // User cancelled port selection
+      // User cancelled port selection in browser dialog
       if (error.name === 'NotFoundError') {
         this.callbacks.onStatusChange('DISCONNECTED');
         return false;
       }
-      this.callbacks.onStatusChange('ERROR', error.message || 'Gagal membuka port serial.');
+
+      let friendlyMsg = error.message || 'Gagal membuka port serial.';
+      const lower = friendlyMsg.toLowerCase();
+      if (error.name === 'NetworkError' || lower.includes('failed to open') || lower.includes('access denied') || lower.includes('already open')) {
+        friendlyMsg = 'Port COM4 sedang dipakai oleh aplikasi lain (seperti Serial Monitor di Arduino IDE). Harap TUTUP jendela Serial Monitor di Arduino IDE, lalu klik Hubungkan lagi!';
+      } else if (error.name === 'SecurityError' || lower.includes('security') || lower.includes('not allowed') || lower.includes('permission')) {
+        friendlyMsg = 'Izin Web Serial dibatasi oleh iframe. Buka aplikasi di jendela browser penuh (Tab Baru) atau izinkan Serial Port di ikon gembok URL browser.';
+      }
+
+      this.callbacks.onStatusChange('ERROR', friendlyMsg);
       await this.disconnect();
       return false;
     }

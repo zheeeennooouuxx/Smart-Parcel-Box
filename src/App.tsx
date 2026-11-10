@@ -28,7 +28,7 @@ import {
 import { processESP32Message, parseAnySerialLine } from './services/serialParser';
 import { WebSerialManager } from './services/webSerialManager';
 import { WifiHotspotManager } from './services/wifiHotspotManager';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, X, Usb } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -263,6 +263,20 @@ export default function App() {
     }
   };
 
+  // Connect explicitly via USB Serial (guaranteed COM port connect)
+  const handleConnectSerial = async () => {
+    setAlertBanner(null);
+    wifiManagerRef.current?.disconnect();
+    setState((prev) => ({
+      ...prev,
+      connectionType: 'SERIAL',
+      connectionStatus: 'CONNECTING',
+      portInfo: 'COM4',
+    }));
+    if (!serialManagerRef.current) return;
+    await serialManagerRef.current.connect(baudRate);
+  };
+
   // Connect Handler (USB Serial vs WiFi Hotspot)
   const handleConnect = async () => {
     setAlertBanner(null);
@@ -270,8 +284,7 @@ export default function App() {
       if (!wifiManagerRef.current) return;
       await wifiManagerRef.current.connect(state.wifiConfig, isSimulated);
     } else {
-      if (!serialManagerRef.current) return;
-      await serialManagerRef.current.connect(baudRate);
+      await handleConnectSerial();
     }
   };
 
@@ -402,22 +415,31 @@ export default function App() {
 
       {/* Alert Banner if active */}
       {alertBanner && (
-        <div className={`px-4 py-3 flex items-center justify-between text-xs font-mono-code ${
+        <div className={`px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs font-mono-code ${
           alertBanner.type === 'error'
-            ? 'bg-rose-950/80 border-b border-rose-800 text-rose-300'
-            : 'bg-amber-950/80 border-b border-amber-800 text-amber-300'
+            ? 'bg-rose-950/90 border-b border-rose-800 text-rose-200'
+            : 'bg-amber-950/90 border-b border-amber-800 text-amber-200'
         }`}>
-          <div className="flex items-center gap-2 max-w-4xl mx-auto">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
+          <div className="flex items-center gap-2 max-w-2xl">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
             <span>{alertBanner.message}</span>
           </div>
-          <button
-            onClick={() => setAlertBanner(null)}
-            aria-label="Tutup Peringatan"
-            className="p-1 hover:bg-black/30 rounded"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConnectSerial}
+              className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1 cursor-pointer"
+            >
+              <Usb className="w-3.5 h-3.5" />
+              <span>Gunakan USB Serial (COM4)</span>
+            </button>
+            <button
+              onClick={() => setAlertBanner(null)}
+              aria-label="Tutup Peringatan"
+              className="p-1 hover:bg-black/30 rounded cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -430,13 +452,17 @@ export default function App() {
             <span className="text-slate-300">
               Port <strong>COM4</strong> • Chip: <strong>ESP32-D0WD-V3</strong> (MAC: <code className="text-cyan-300">f4:65:0b:57:13:bc</code>) @9600 Baud
             </span>
+            <span className="text-amber-400 text-[11px] hidden xl:inline">
+              (Tutup Serial Monitor Arduino IDE agar COM4 tidak terkunci)
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleConnect}
+              onClick={handleConnectSerial}
               className="px-3.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md shadow-cyan-500/25 flex items-center gap-1.5 cursor-pointer"
             >
-              HUBUNGKAN COM4 SEKARANG
+              <Usb className="w-3.5 h-3.5" />
+              <span>HUBUNGKAN COM4 SEKARANG</span>
             </button>
             <button
               onClick={() => setNewDeviceBanner(false)}

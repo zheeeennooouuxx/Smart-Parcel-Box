@@ -216,12 +216,11 @@ export class WifiHotspotManager {
       const error = err as Error;
       this.consecutiveFailures++;
 
-      if (this.consecutiveFailures >= 4) {
+      if (this.consecutiveFailures >= 3) {
         this.isConnected = false;
         this.isConnecting = false;
-        const msg = error.name === 'AbortError'
-          ? 'Koneksi ke WiFi Hotspot ESP32 timeout.'
-          : `Gagal membaca telemetri WiFi: ${error.message}`;
+        this.stopPolling();
+        const msg = 'ESP32 tidak merespons HTTP di WiFi ' + this.config.ssid + ' (sketsa Anda mengirim data via Serial USB COM4, bukan WebServer). Silakan beralih ke mode USB Serial (COM4).';
         this.callbacks.onStatusChange('ERROR', msg);
       }
       return false;
