@@ -10,7 +10,8 @@ import {
   XCircle, 
   AlertCircle,
   Volume2,
-  Layers
+  Layers,
+  Wifi
 } from 'lucide-react';
 import { ParcelBoxState } from '../types/serial';
 
@@ -63,11 +64,21 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({ state }) => 
   const devices = [
     {
       name: 'ESP32 Controller',
-      role: 'Pengelola RTC, Reed Switch, USB Serial, Buzzer',
+      role: 'Pengelola RTC, Reed Switch, WiFi/USB, Buzzer',
       status: isConnected ? 'ONLINE' : isConnecting ? 'CONNECTING' : 'OFFLINE',
       statusColor: isConnected ? 'text-emerald-400' : isConnecting ? 'text-amber-400' : 'text-slate-500',
       icon: Cpu,
-      detail: isConnected ? `${state.portInfo || 'USB Serial'} @${state.baudRate} baud` : 'Belum Terhubung',
+      detail: isConnected 
+        ? (state.connectionType === 'WIFI' ? `WiFi Hotspot Gateway (${state.wifiConfig.ip})` : `${state.portInfo || 'USB Serial'} @${state.baudRate} baud`)
+        : 'Belum Terhubung',
+    },
+    {
+      name: 'WiFi Hotspot (SoftAP)',
+      role: `SSID: ${state.wifiConfig.ssid}`,
+      status: state.connectionType === 'WIFI' && isConnected ? 'CONNECTED' : 'STANDBY',
+      statusColor: state.connectionType === 'WIFI' && isConnected ? 'text-blue-400' : 'text-slate-500',
+      icon: Wifi,
+      detail: `IP ${state.wifiConfig.ip}:${state.wifiConfig.port} • ${state.wifiConfig.protocol}`,
     },
     {
       name: 'Modul RTC DS1302',
@@ -94,16 +105,8 @@ export const DeviceStatusCard: React.FC<DeviceStatusCardProps> = ({ state }) => 
       detail: isConnected ? 'GPIO16 RX / GPIO17 TX UART2 (9600 Baud)' : 'Menunggu ESP32',
     },
     {
-      name: 'Buzzer Aktif',
-      role: 'Indikator audio akses berhasil / ditolak',
-      status: isConnected ? 'READY' : 'OFFLINE',
-      statusColor: isConnected ? 'text-emerald-400' : 'text-slate-500',
-      icon: Volume2,
-      detail: isConnected ? 'BEEP_GRANTED / BEEP_DENIED' : 'Siap Bunyi',
-    },
-    {
-      name: 'Throughput Serial USB',
-      role: 'Aliran data realtime dari ESP32 ke Browser',
+      name: 'Throughput Data Realtime',
+      role: state.connectionType === 'WIFI' ? 'Paket HTTP/WS via WiFi Hotspot' : 'Aliran data serial USB CDC',
       status: isConnected ? 'STREAMING' : 'IDLE',
       statusColor: isConnected ? 'text-cyan-400' : 'text-slate-500',
       icon: Radio,

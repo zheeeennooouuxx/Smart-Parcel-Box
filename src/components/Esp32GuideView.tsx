@@ -1,5 +1,18 @@
 import React, { useState } from 'react';
-import { Code2, Copy, Check, Cpu, Layers, Terminal, AlertCircle, FileCode } from 'lucide-react';
+import { 
+  Code2, 
+  Copy, 
+  Check, 
+  Layers, 
+  Terminal, 
+  FileCode, 
+  Wifi, 
+  Usb, 
+  Globe, 
+  CheckCircle2, 
+  ShieldCheck, 
+  Sparkles 
+} from 'lucide-react';
 
 export const Esp32GuideView: React.FC = () => {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
@@ -10,21 +23,28 @@ export const Esp32GuideView: React.FC = () => {
     setTimeout(() => setCopiedSection(null), 2000);
   };
 
-  const esp32Code = `/*
+  const esp32DualModeCode = `/*
  * ==============================================================
- * SMART PARCEL BOX - FIRMWARE ESP32 CONTROLLER
+ * SMART PARCEL BOX - FIRMWARE ESP32 CONTROLLER (DUAL MODE)
  * ==============================================================
- * Fitur:
- * 1. Serial USB (Baud 9600): Mengirim JSON satu baris ke Web Dashboard
- * 2. Serial2 / UART2 (GPIO16 RX, GPIO17 TX): Komunikasi ke Arduino Uno
- * 3. DS1302 RTC: Sumber waktu fisik interval 12 jam
- * 4. HMAC-SHA256: Algoritma kalkulasi PIN dinamis 6-digit
- * 5. Reed Switch (GPIO4): Deteksi magnetik buka/tutup pintu box
- * 6. Buzzer (GPIO5): Indikator audio
+ * Fitur Komunikasi:
+ * 1. WiFi Hotspot SoftAP (SSID: "SMART-PARCEL-BOX-AP", IP: 192.168.4.1)
+ *    - WebServer port 80 dengan header CORS (Access-Control-Allow-Origin: *)
+ *    - Endpoint GET  /api/status  : Mengembalikan JSON status lengkap
+ *    - Endpoint GET  /api/pin     : Mengembalikan JSON PIN 6-digit aktif
+ *    - Endpoint POST /api/command : Menerima perintah (PING, STATUS, BEEP, DOOR)
+ * 2. Serial USB (Baud 9600): Stream JSON satu baris untuk Web Serial API
+ * 3. Hardware UART2 (GPIO16 RX, GPIO17 TX): Komunikasi ke Arduino Uno
+ * 4. RTC DS1302: Basis waktu fisik interval 12 jam
+ * 5. HMAC-SHA256: Algoritma kalkulasi PIN dinamis 6-digit (TOTP)
+ * 6. Reed Switch (GPIO4): Deteksi magnetik buka/tutup pintu box
+ * 7. Buzzer (GPIO5): Indikator audio
  * ==============================================================
  */
 
 #include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
 #include <RtcDS1302.h>
 #include <mbedtls/md.h>
 
@@ -40,6 +60,11 @@ RtcDS1302<ThreeWire> Rtc(myWire);
 #define REED_SWITCH_PIN 4
 #define BUZZER_PIN 5
 
+// Konfigurasi WiFi Hotspot (SoftAP)
+const char* WIFI_SSID = "SMART-PARCEL-BOX-AP";
+const char* WIFI_PASS = "12345678";
+WebServer server(80);
+
 // Secret Key HMAC-SHA256 (Harus SAMA PERSIS dengan Arduino Uno)
 const char* SECRET_KEY = "SMART_PARCEL_SECRET_KEY_2026";
 const unsigned long INTERVAL_12_HOURS = 43200UL; // 12 jam dalam detik
@@ -49,9 +74,12 @@ HardwareSerial ArduinoSerial(2);
 
 // Status Cache
 int lastReedState = -1;
-unsigned long lastSerialTelemetry = 0;
+unsigned long lastTelemetryMillis = 0;
 unsigned long currentPeriod = 0;
 char currentPin[7] = "000000";
+char currentDate[12] = "2026-11-09";
+char currentTime[10] = "12:00:00";
+bool isRtcValid = false;
 
 // Fungsi HMAC-SHA256 menghasilkan PIN 6 digit
 void generateHmacPin(unsigned long period, char* outPin) {
@@ -78,35 +106,125 @@ void generateHmacPin(unsigned long period, char* outPin) {
   snprintf(outPin, 7, "%06lu", pinNum);
 }
 
-void sendJsonDashboard(const char* dateStr, const char* timeStr, bool isRtcOk, const char* doorStr) {
-  if (!isRtcOk) {
-    Serial.println("{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC NOT READY\\"}");
-    return;
-  }
+// Buat format string JSON status lengkap
+String buildStatusJson() {
+  int reedState = digitalRead(REED_SWITCH_PIN);
+  const char* doorStateStr = (reedState == HIGH) ? "OPEN" : "CLOSED";
   
-  // Format JSON satu baris diakhiri newline untuk Web Serial API
-  Serial.printf(
-    "{\\"type\\":\\"STATUS\\",\\"rtc\\":\\"OK\\",\\"date\\":\\"%s\\",\\"time\\":\\"%s\\",\\"period\\":%lu,\\"pin\\":\\"%s\\",\\"door\\":\\"%s\\"}\\n",
-    dateStr, timeStr, currentPeriod, currentPin, doorStr
+  if (!isRtcValid) {
+    return "{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC NOT READY\\",\\"door\\":\\"" + String(doorStateStr) + "\\"}";
+  }
+
+  char buf[256];
+  snprintf(buf, sizeof(buf),
+    "{\\"type\\":\\"STATUS\\",\\"rtc\\":\\"OK\\",\\"date\\":\\"%s\\",\\"time\\":\\"%s\\",\\"period\\":%lu,\\"pin\\":\\"%s\\",\\"door\\":\\"%s\\"}",
+    currentDate, currentTime, currentPeriod, currentPin, doorStateStr
   );
+  return String(buf);
+}
+
+// Helper untuk menambahkan header CORS ke respon HTTP
+void setCorsHeaders() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept");
+}
+
+// HTTP Handler: /api/status
+void handleApiStatus() {
+  setCorsHeaders();
+  String json = buildStatusJson();
+  server.send(200, "application/json", json);
+}
+
+// HTTP Handler: /api/pin
+void handleApiPin() {
+  setCorsHeaders();
+  char buf[128];
+  snprintf(buf, sizeof(buf),
+    "{\\"pin\\":\\"%s\\",\\"period\\":%lu,\\"status\\":\\"%s\\"}",
+    currentPin, currentPeriod, isRtcValid ? "ACTIVE" : "INVALID"
+  );
+  server.send(200, "application/json", String(buf));
+}
+
+// HTTP Handler: /api/command
+void handleApiCommand() {
+  setCorsHeaders();
+  String cmd = "";
+  if (server.hasArg("plain")) {
+    String body = server.arg("plain");
+    // Simple command extract or plain string
+    if (body.indexOf("PING") >= 0) cmd = "PING";
+    else if (body.indexOf("STATUS") >= 0) cmd = "STATUS";
+    else if (body.indexOf("BEEP") >= 0) cmd = "BEEP";
+    else if (body.indexOf("OPEN") >= 0) cmd = "OPEN";
+    else if (body.indexOf("CLOSE") >= 0) cmd = "CLOSE";
+    else cmd = body;
+  } else if (server.hasArg("cmd")) {
+    cmd = server.arg("cmd");
+  }
+
+  cmd.trim();
+  cmd.toUpperCase();
+
+  if (cmd == "PING") {
+    server.send(200, "application/json", "{\\"type\\":\\"PONG\\",\\"message\\":\\"ESP32 HOTSPOT ALIVE\\"}");
+  } else if (cmd == "BEEP") {
+    digitalWrite(BUZZER_PIN, HIGH); delay(150); digitalWrite(BUZZER_PIN, LOW);
+    server.send(200, "application/json", "{\\"type\\":\\"ACK\\",\\"message\\":\\"BEEP EXECUTED\\"}");
+  } else {
+    server.send(200, "application/json", buildStatusJson());
+  }
+}
+
+// HTTP Handler: Preflight OPTIONS request
+void handleOptions() {
+  setCorsHeaders();
+  server.send(204);
 }
 
 void setup() {
-  // Serial USB ke Web Dashboard Browser
+  // 1. Serial USB ke Browser Web Serial API
   Serial.begin(9600);
   
-  // Serial2 ke Arduino Uno
+  // 2. Serial2 UART2 ke Arduino Uno (GPIO16 RX, GPIO17 TX)
   ArduinoSerial.begin(9600, SERIAL_8N1, 16, 17);
 
   pinMode(REED_SWITCH_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
 
-  // Inisialisasi RTC DS1302
+  // 3. Inisialisasi WiFi Hotspot (SoftAP Mode)
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_SSID, WIFI_PASS);
+  IPAddress apIP = WiFi.softAPIP(); // Default: 192.168.4.1
+
+  Serial.println("");
+  Serial.println("=========================================");
+  Serial.println("SMART PARCEL BOX ESP32 FIRMWARE READY");
+  Serial.printf("WiFi Hotspot SSID: %s\\n", WIFI_SSID);
+  Serial.printf("WiFi Hotspot IP  : %s\\n", apIP.toString().c_str());
+  Serial.println("=========================================");
+
+  // 4. Setup Rute HTTP Server
+  server.on("/api/status", HTTP_GET, handleApiStatus);
+  server.on("/api/pin", HTTP_GET, handleApiPin);
+  server.on("/api/command", HTTP_POST, handleApiCommand);
+  server.on("/api/command", HTTP_OPTIONS, handleOptions);
+  server.on("/api/status", HTTP_OPTIONS, handleOptions);
+  server.onNotFound([]() {
+    setCorsHeaders();
+    if (server.method() == HTTP_OPTIONS) {
+      server.send(204);
+    } else {
+      server.send(404, "application/json", "{\\"error\\":\\"Endpoint Not Found\\"}");
+    }
+  });
+  server.begin();
+
+  // 5. Inisialisasi RTC DS1302
   Rtc.Begin();
-  if (!Rtc.IsDateTimeValid()) {
-    Serial.println("{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC DATETIME INVALID\\"}");
-  }
   if (Rtc.GetIsWriteProtected()) {
     Rtc.SetIsWriteProtected(false);
   }
@@ -116,20 +234,21 @@ void setup() {
 }
 
 void loop() {
+  // Handle request HTTP masuk dari browser via WiFi Hotspot
+  server.handleClient();
+
   // 1. Baca Reed Switch
   int reedState = digitalRead(REED_SWITCH_PIN);
   const char* doorStateStr = (reedState == HIGH) ? "OPEN" : "CLOSED";
 
   if (reedState != lastReedState) {
     lastReedState = reedState;
-    // Kirim event perubahan pintu ke Arduino Uno via UART2
     if (reedState == HIGH) {
       ArduinoSerial.println("DOOR_OPEN");
     } else {
       ArduinoSerial.println("DOOR_CLOSED");
     }
-
-    // Kirim event instan ke Web Dashboard Serial USB
+    // Kirim event instan ke Serial USB
     Serial.printf("{\\"type\\":\\"DOOR\\",\\"door\\":\\"%s\\"}\\n", doorStateStr);
   }
 
@@ -146,49 +265,48 @@ void loop() {
     }
   }
 
-  // 3. Baca Perintah Masuk dari Web Serial Monitor (Browser ke ESP32)
+  // 3. Baca Perintah Masuk dari Web Serial USB
   while (Serial.available()) {
     String cmd = Serial.readStringUntil('\\n');
     cmd.trim();
+    cmd.toUpperCase();
     if (cmd == "PING") {
       Serial.println("{\\"type\\":\\"PONG\\",\\"message\\":\\"ESP32 ALIVE\\"}");
     } else if (cmd == "STATUS") {
-      lastSerialTelemetry = 0; // Segera kirim paket status JSON
+      lastTelemetryMillis = 0;
     } else if (cmd == "BEEP") {
       digitalWrite(BUZZER_PIN, HIGH); delay(150); digitalWrite(BUZZER_PIN, LOW);
       Serial.println("{\\"type\\":\\"ACK\\",\\"message\\":\\"BEEP EXECUTED\\"}");
     }
   }
 
-  // 4. Telemetri Rutin ke Web Dashboard via USB Serial setiap 2 detik
-  if (millis() - lastSerialTelemetry >= 2000) {
-    lastSerialTelemetry = millis();
+  // 4. Update Waktu RTC & Telemetri Rutin setiap 2 detik
+  if (millis() - lastTelemetryMillis >= 2000) {
+    lastTelemetryMillis = millis();
 
     if (!Rtc.IsDateTimeValid()) {
-      Serial.println("{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC BATTERY LOW OR DISCONNECTED\\"}");
+      isRtcValid = false;
+      Serial.println("{\\"type\\":\\"ERROR\\",\\"rtc\\":\\"ERROR\\",\\"message\\":\\"RTC NOT READY\\"}");
       ArduinoSerial.println("RTC_ERROR");
       return;
     }
 
+    isRtcValid = true;
     RtcDateTime now = Rtc.GetDateTime();
     unsigned long epochSeconds = now.Epoch32Time();
     unsigned long newPeriod = epochSeconds / INTERVAL_12_HOURS;
 
-    // Hitung ulang PIN hanya jika periode waktu berganti
     if (newPeriod != currentPeriod) {
       currentPeriod = newPeriod;
       generateHmacPin(currentPeriod, currentPin);
-      
-      // Sinkronkan step periode ke Arduino Uno
       ArduinoSerial.printf("STEP:%lu\\n", currentPeriod);
     }
 
-    char dateBuffer[12];
-    char timeBuffer[10];
-    snprintf(dateBuffer, sizeof(dateBuffer), "%04u-%02u-%02u", now.Year(), now.Month(), now.Day());
-    snprintf(timeBuffer, sizeof(timeBuffer), "%02u:%02u:%02u", now.Hour(), now.Minute(), now.Second());
+    snprintf(currentDate, sizeof(currentDate), "%04u-%02u-%02u", now.Year(), now.Month(), now.Day());
+    snprintf(currentTime, sizeof(currentTime), "%02u:%02u:%02u", now.Hour(), now.Minute(), now.Second());
 
-    sendJsonDashboard(dateBuffer, timeBuffer, true, doorStateStr);
+    // Kirim juga ke USB Serial
+    Serial.println(buildStatusJson());
   }
 }`;
 
@@ -201,7 +319,7 @@ void loop() {
  * - LCD I2C 1602 (Tampilan Status)
  * - RFID RC522 (Akses Tag Pemilik)
  * - Servo Motor (Kunci Box)
- * - SoftwareSerial / Hardware Serial ke ESP32
+ * - SoftwareSerial / Hardware Serial ke ESP32 UART2
  * ==============================================================
  */
 
@@ -271,7 +389,7 @@ void loop() {
 }`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl md:text-2xl font-bold text-white tracking-wide font-tech flex items-center gap-2.5">
@@ -279,35 +397,47 @@ void loop() {
             PANDUAN & KODE FIRMWARE ESP32 + ARDUINO
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Program lengkap ESP32 yang mengirimkan JSON format satu baris ke USB Serial tanpa mengganggu UART2 Arduino Uno.
+            Program lengkap ESP32 yang mendukung <strong>WiFi Hotspot (SoftAP WebServer)</strong> dan <strong>USB Serial CDC</strong> secara bersamaan.
           </p>
         </div>
       </div>
 
-      {/* Architecture Alert */}
-      <div className="p-4 rounded-xl bg-cyan-950/40 border border-cyan-800/60 text-xs text-slate-300 space-y-2">
-        <div className="flex items-center gap-2 text-cyan-300 font-bold font-tech text-sm">
-          <Terminal className="w-4 h-4" />
-          ARSITEKTUR DUAL-SERIAL ESP32
+      {/* Dual Connection Features Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="p-4 rounded-xl bg-blue-950/30 border border-blue-800/60 text-xs text-slate-300 space-y-2">
+          <div className="flex items-center gap-2 text-blue-400 font-bold font-tech text-sm">
+            <Wifi className="w-4 h-4" />
+            METODE 1: WIFI HOTSPOT SOFTAP (192.168.4.1)
+          </div>
+          <p className="leading-relaxed text-[11px] text-slate-400">
+            ESP32 memancarkan jaringan WiFi sendiri bernama <code>SMART-PARCEL-BOX-AP</code>. Pengguna cukup menyambungkan smartphone atau laptop ke WiFi ini tanpa perlu router internet. WebServer melayani endpoint REST JSON dengan header CORS otomatis.
+          </p>
         </div>
-        <p className="leading-relaxed">
-          ESP32 menggunakan <strong>Serial USB (Baud 9600)</strong> untuk berbicara langsung dengan browser ini menggunakan Web Serial API. Sedangkan komunikasi ke Arduino Uno menggunakan <strong>Serial2 (UART2 pada GPIO16 RX dan GPIO17 TX)</strong>. Kedua jalur ini terisolasi sehingga pengiriman JSON ke dashboard tidak akan memicu konflik pesan pada Arduino.
-        </p>
+
+        <div className="p-4 rounded-xl bg-cyan-950/30 border border-cyan-800/60 text-xs text-slate-300 space-y-2">
+          <div className="flex items-center gap-2 text-cyan-400 font-bold font-tech text-sm">
+            <Usb className="w-4 h-4" />
+            METODE 2: USB SERIAL (WEB SERIAL API)
+          </div>
+          <p className="leading-relaxed text-[11px] text-slate-400">
+            Kabel data USB terhubung langsung ke browser via Chrome/Edge Web Serial API pada baud rate 9600. Terpisah secara hardware dari UART2 (GPIO16/17) yang digunakan untuk Arduino Uno.
+          </p>
+        </div>
       </div>
 
-      {/* ESP32 Code Section */}
+      {/* ESP32 Dual Mode Code Section */}
       <div className="rounded-2xl bg-[#0a0f1d] border border-slate-800/80 overflow-hidden shadow-xl">
         <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FileCode className="w-4 h-4 text-cyan-400" />
-            <span className="text-xs font-bold text-white font-tech">ESP32_SmartParcelBox.ino</span>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/60 font-mono-code">
-              Firmware Utama
+            <span className="text-xs font-bold text-white font-tech">ESP32_SmartParcelBox_DualMode.ino</span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-gradient-to-r from-blue-950 to-cyan-950 text-cyan-300 border border-cyan-800/60 font-mono-code">
+              WiFi Hotspot + USB Serial
             </span>
           </div>
 
           <button
-            onClick={() => handleCopy(esp32Code, 'esp32')}
+            onClick={() => handleCopy(esp32DualModeCode, 'esp32')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono-code transition-colors"
           >
             {copiedSection === 'esp32' ? (
@@ -325,11 +455,11 @@ void loop() {
         </div>
 
         <pre className="p-4 text-[11px] font-mono-code text-slate-300 overflow-x-auto max-h-96 bg-black/60 leading-relaxed">
-          <code>{esp32Code}</code>
+          <code>{esp32DualModeCode}</code>
         </pre>
       </div>
 
-      {/* Arduino Uno Companion Code Section */}
+      {/* Arduino Uno Slave Code Section */}
       <div className="rounded-2xl bg-[#0a0f1d] border border-slate-800/80 overflow-hidden shadow-xl">
         <div className="p-4 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">

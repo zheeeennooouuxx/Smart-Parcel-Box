@@ -21,11 +21,14 @@ import {
   SerialLineEntry, 
   SerialConnectionStatus, 
   ESP32Message,
-  LineEndingType
+  LineEndingType,
+  ConnectionType,
+  WifiConfig
 } from './types/serial';
 import { processESP32Message, parseAnySerialLine } from './services/serialParser';
 import { WebSerialManager } from './services/webSerialManager';
-import { AlertTriangle, X, ShieldAlert, Sparkles, CheckCircle2 } from 'lucide-react';
+import { WifiHotspotManager } from './services/wifiHotspotManager';
+import { AlertTriangle, X } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -37,7 +40,16 @@ export default function App() {
   // Core application state
   const [state, setState] = useState<ParcelBoxState>({
     connectionStatus: 'DISCONNECTED',
+    connectionType: 'SERIAL',
+    portInfo: undefined,
     baudRate: 9600,
+    wifiConfig: {
+      ip: '192.168.4.1',
+      port: 80,
+      ssid: 'SMART-PARCEL-BOX-AP',
+      intervalMs: 2000,
+      protocol: 'HTTP_POLL',
+    },
     rtcStatus: 'UNKNOWN',
     pinStatus: 'WAITING_DEVICE',
     doorStatus: 'UNKNOWN',
@@ -48,8 +60,9 @@ export default function App() {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [rawLines, setRawLines] = useState<SerialLineEntry[]>([]);
 
-  // Ref to hold WebSerialManager instance
+  // Refs to hold hardware manager instances
   const serialManagerRef = useRef<WebSerialManager | null>(null);
+  const wifiManagerRef = useRef<WifiHotspotManager | null>(null);
 
   // Web Audio chime generator
   const playChime = useCallback((type: 'door' | 'alert' | 'connect') => {
@@ -85,7 +98,7 @@ export default function App() {
     }
   }, [soundEnabled]);
 
-  // Serial event handlers
+  // Connection event handlers
   const handleStatusChange = useCallback((newStatus: SerialConnectionStatus, errorMsg?: string) => {
     setState((prev) => {
       let pinStatus = prev.pinStatus;
@@ -120,7 +133,7 @@ export default function App() {
           id: `${Date.now()}-dc`,
           timestamp: new Date().toISOString(),
           type: 'DISCONNECT',
-          message: 'Koneksi port USB serial terputus.',
+          message: 'Koneksi perangkat ESP32 terputus.',
         },
         ...prev.slice(0, 499),
       ]);
@@ -203,63 +216,152 @@ export default function App() {
     };
   }, [handleStatusChange, handleDataReceived, handleDataSent, handlePortSelected]);
 
-  // Send message to serial port
+  // Initialize WifiHotspotManager
+  useEffect(() => {
+    const wifiManager = new WifiHotspotManager({
+      onStatusChange: handleStatusChange,
+      onDataReceived: handleDataReceived,
+      onDataSent: handleDataSent,
+      onWifiInfo: (info) => {
+        setState((prev) => ({
+          ...prev,
+          portInfo: `WiFi: ${info.ssid} (${info.ip})`,
+          wifiRssi: info.rssi,
+        }));
+      },
+    });
+    wifiManagerRef.current = wifiManager;
+
+    return () => {
+      wifiManager.disconnect();
+    };
+  }, [handleStatusChange, handleDataReceived, handleDataSent]);
+
+  // Send message to serial port or WiFi Hotspot
   const handleSendMessage = async (text: string, ending: LineEndingType): Promise<boolean> => {
-    if (!serialManagerRef.current) return false;
-    return await serialManagerRef.current.send(text, ending);
+    if (state.connectionType === 'WIFI') {
+      if (!wifiManagerRef.current) return false;
+      return await wifiManagerRef.current.send(text);
+    } else {
+      if (!serialManagerRef.current) return false;
+      return await serialManagerRef.current.send(text, ending);
+    }
   };
 
   // Hardware Reset ESP32
   const handleResetDevice = async (): Promise<boolean> => {
-    if (!serialManagerRef.current) return false;
-    return await serialManagerRef.current.resetDevice();
+    if (state.connectionType === 'WIFI') {
+      if (!wifiManagerRef.current) return false;
+      return await wifiManagerRef.current.send('RESET');
+    } else {
+      if (!serialManagerRef.current) return false;
+      return await serialManagerRef.current.resetDevice();
+    }
   };
 
-  // Connect Handler
+  // Connect Handler (USB Serial vs WiFi Hotspot)
   const handleConnect = async () => {
     setAlertBanner(null);
-    if (!serialManagerRef.current) return;
-    await serialManagerRef.current.connect(baudRate);
+    if (state.connectionType === 'WIFI') {
+      if (!wifiManagerRef.current) return;
+      await wifiManagerRef.current.connect(state.wifiConfig, isSimulated);
+    } else {
+      if (!serialManagerRef.current) return;
+      await serialManagerRef.current.connect(baudRate);
+    }
   };
 
   // Disconnect Handler
   const handleDisconnect = async () => {
-    if (!serialManagerRef.current) return;
-    await serialManagerRef.current.disconnect();
+    if (state.connectionType === 'WIFI') {
+      wifiManagerRef.current?.disconnect();
+    } else {
+      await serialManagerRef.current?.disconnect();
+    }
     setIsSimulated(false);
+  };
+
+  // Switch connection type
+  const handleConnectionTypeChange = (newType: ConnectionType) => {
+    if (state.connectionStatus === 'CONNECTED' || state.connectionStatus === 'CONNECTING') {
+      handleDisconnect();
+    }
+    setState((prev) => ({
+      ...prev,
+      connectionType: newType,
+      connectionStatus: 'DISCONNECTED',
+      pinStatus: 'WAITING_DEVICE',
+      portInfo: newType === 'WIFI' ? `WiFi: ${prev.wifiConfig.ssid}` : undefined,
+    }));
+  };
+
+  // Update WiFi Config
+  const handleWifiConfigChange = (newCfg: Partial<WifiConfig>) => {
+    setState((prev) => ({
+      ...prev,
+      wifiConfig: { ...prev.wifiConfig, ...newCfg },
+    }));
+    wifiManagerRef.current?.setConfig(newCfg);
+  };
+
+  // Ping test
+  const handleTestPingWifi = async () => {
+    if (!wifiManagerRef.current) {
+      return { success: false, error: 'WiFi Hotspot manager belum siap' };
+    }
+    return await wifiManagerRef.current.testPing(state.wifiConfig);
   };
 
   // Simulator Toggle
   const handleToggleSimulator = () => {
-    if (!serialManagerRef.current) return;
     if (isSimulated) {
-      serialManagerRef.current.stopSimulation();
+      if (state.connectionType === 'WIFI') {
+        wifiManagerRef.current?.stopSimulation();
+      } else {
+        serialManagerRef.current?.stopSimulation();
+      }
       setIsSimulated(false);
       handleDisconnect();
     } else {
       setIsSimulated(true);
-      serialManagerRef.current.startSimulation(43821, '084291');
+      if (state.connectionType === 'WIFI') {
+        wifiManagerRef.current?.connect(state.wifiConfig, true);
+      } else {
+        serialManagerRef.current?.startSimulation(43821, '084291');
+      }
     }
   };
 
   // Simulator controls
   const handleSimulateDoor = (doorState: 'OPEN' | 'CLOSED') => {
-    if (serialManagerRef.current && isSimulated) {
-      serialManagerRef.current.simulateDoorToggle(doorState);
+    if (isSimulated) {
+      if (state.connectionType === 'WIFI') {
+        wifiManagerRef.current?.simulateDoorToggle(doorState);
+      } else {
+        serialManagerRef.current?.simulateDoorToggle(doorState);
+      }
     }
   };
 
   const handleSimulateRtcError = () => {
-    if (serialManagerRef.current && isSimulated) {
-      serialManagerRef.current.simulateRtcError();
+    if (isSimulated) {
+      if (state.connectionType === 'WIFI') {
+        wifiManagerRef.current?.simulateRtcError();
+      } else {
+        serialManagerRef.current?.simulateRtcError();
+      }
     }
   };
 
   const handleSimulateNewPeriod = () => {
-    if (serialManagerRef.current && isSimulated) {
+    if (isSimulated) {
       const nextPeriod = (state.period || 43821) + 1;
       const randomPin = Math.floor(100000 + Math.random() * 900000).toString();
-      serialManagerRef.current.simulateNewPeriod(nextPeriod, randomPin);
+      if (state.connectionType === 'WIFI') {
+        wifiManagerRef.current?.simulateNewPeriod(nextPeriod, randomPin);
+      } else {
+        serialManagerRef.current?.simulateNewPeriod(nextPeriod, randomPin);
+      }
     }
   };
 
@@ -278,15 +380,20 @@ export default function App() {
       {/* Top Header */}
       <Header
         connectionStatus={state.connectionStatus}
+        connectionType={state.connectionType}
+        onConnectionTypeChange={handleConnectionTypeChange}
         rtcStatus={state.rtcStatus}
         portInfo={state.portInfo}
         baudRate={baudRate}
+        wifiConfig={state.wifiConfig}
+        onWifiConfigChange={handleWifiConfigChange}
         isSimulated={isSimulated}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onToggleSimulator={handleToggleSimulator}
         onOpenSettings={() => setActiveTab('settings')}
         onOpenSerialMonitor={() => setActiveTab('monitor')}
+        onTestPingWifi={handleTestPingWifi}
       />
 
       {/* Alert Banner if active */}
@@ -363,7 +470,7 @@ export default function App() {
                   DIAGNOSTIK & MONITORING PERANGKAT
                 </h2>
                 <div className="text-xs text-cyan-400 font-mono-code">
-                  UART2 GPIO16/17 • USB CDC
+                  {state.connectionType === 'WIFI' ? 'WIFI HOTSPOT SoftAP (802.11 b/g/n)' : 'UART2 GPIO16/17 • USB CDC'}
                 </div>
               </div>
               <DeviceStatusCard state={state} />
@@ -384,6 +491,8 @@ export default function App() {
             <SerialMonitorView
               lines={rawLines}
               connectionStatus={state.connectionStatus}
+              connectionType={state.connectionType}
+              wifiConfig={state.wifiConfig}
               portInfo={state.portInfo}
               baudRate={baudRate}
               pin={state.pin}
@@ -412,8 +521,12 @@ export default function App() {
 
           {activeTab === 'settings' && (
             <SettingsView
+              connectionType={state.connectionType}
+              onConnectionTypeChange={handleConnectionTypeChange}
               baudRate={baudRate}
               onBaudRateChange={handleBaudRateChange}
+              wifiConfig={state.wifiConfig}
+              onWifiConfigChange={handleWifiConfigChange}
               isSimulated={isSimulated}
               onToggleSimulator={handleToggleSimulator}
               onSimulateDoorToggle={handleSimulateDoor}
@@ -421,6 +534,7 @@ export default function App() {
               onSimulateNewPeriod={handleSimulateNewPeriod}
               soundEnabled={soundEnabled}
               onToggleSound={() => setSoundEnabled(!soundEnabled)}
+              onTestPingWifi={handleTestPingWifi}
             />
           )}
         </main>

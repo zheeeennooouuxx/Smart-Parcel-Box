@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Settings, 
   Sliders, 
@@ -9,16 +9,25 @@ import {
   Cpu, 
   DoorOpen, 
   DoorClosed, 
-  Clock, 
   KeyRound, 
   ShieldCheck, 
-  Globe 
+  Globe,
+  Wifi,
+  Signal,
+  Usb,
+  Radio,
+  Server
 } from 'lucide-react';
 import { WebSerialManager } from '../services/webSerialManager';
+import { ConnectionType, WifiConfig } from '../types/serial';
 
 interface SettingsViewProps {
+  connectionType: ConnectionType;
+  onConnectionTypeChange: (type: ConnectionType) => void;
   baudRate: number;
   onBaudRateChange: (rate: number) => void;
+  wifiConfig: WifiConfig;
+  onWifiConfigChange: (config: Partial<WifiConfig>) => void;
   isSimulated: boolean;
   onToggleSimulator: () => void;
   onSimulateDoorToggle: (state: 'OPEN' | 'CLOSED') => void;
@@ -26,11 +35,16 @@ interface SettingsViewProps {
   onSimulateNewPeriod: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
+  onTestPingWifi?: () => Promise<{ success: boolean; latencyMs?: number; error?: string; details?: string }>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
+  connectionType,
+  onConnectionTypeChange,
   baudRate,
   onBaudRateChange,
+  wifiConfig,
+  onWifiConfigChange,
   isSimulated,
   onToggleSimulator,
   onSimulateDoorToggle,
@@ -38,32 +52,234 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSimulateNewPeriod,
   soundEnabled,
   onToggleSound,
+  onTestPingWifi,
 }) => {
   const isWebSerialSupported = WebSerialManager.isSupported();
   const baudRates = [9600, 19200, 38400, 57600, 115200];
+  const [pingResult, setPingResult] = useState<{ success: boolean; latencyMs?: number; msg: string } | null>(null);
+  const [isPinging, setIsPinging] = useState(false);
+
+  const handlePing = async () => {
+    if (!onTestPingWifi) return;
+    setIsPinging(true);
+    setPingResult(null);
+    try {
+      const res = await onTestPingWifi();
+      setPingResult({
+        success: res.success,
+        latencyMs: res.latencyMs,
+        msg: res.success ? (res.details || 'Ping sukses') : (res.error || 'Gagal terhubung ke ESP32 Hotspot'),
+      });
+    } catch (err: unknown) {
+      const error = err as Error;
+      setPingResult({ success: false, msg: error.message });
+    } finally {
+      setIsPinging(false);
+    }
+  };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
+      {/* Title */}
       <div className="flex items-center gap-3">
         <div className="p-2.5 rounded-xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
           <Settings className="w-6 h-6" />
         </div>
         <div>
           <h2 className="text-xl md:text-2xl font-bold text-white font-tech">
-            PENGATURAN SERIAL & PERANGKAT
+            PENGATURAN KONEKSI & PERANGKAT
           </h2>
           <p className="text-xs text-slate-400">
-            Konfigurasi koneksi port serial, kompatibilitas browser, dan simulator perangkat keras.
+            Pilih metode komunikasi (USB Serial atau WiFi Hotspot), konfigurasi endpoint, dan uji koneksi.
           </p>
         </div>
       </div>
 
+      {/* Primary Connection Mode Selector */}
+      <div className="p-6 rounded-2xl bg-[#0c1326] border border-cyan-500/30 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-bold text-white font-tech flex items-center gap-2">
+            <Radio className="w-4 h-4 text-cyan-400" />
+            METODE KONEKSI UTAMA KE ESP32
+          </div>
+          <span className="text-[11px] font-mono-code px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+            Aktif: {connectionType === 'WIFI' ? 'WiFi Hotspot' : 'USB Serial'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* USB Serial Option */}
+          <div
+            onClick={() => onConnectionTypeChange('SERIAL')}
+            className={`p-4 rounded-xl border cursor-pointer transition-all ${
+              connectionType === 'SERIAL'
+                ? 'bg-cyan-950/40 border-cyan-400 text-white shadow-lg shadow-cyan-950/50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${connectionType === 'SERIAL' ? 'bg-cyan-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                  <Usb className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold font-tech text-sm">USB Serial (Web Serial API)</div>
+                  <div className="text-[11px] text-slate-400">Kabel data USB langsung via COM port @9600 baud</div>
+                </div>
+              </div>
+              <input
+                type="radio"
+                checked={connectionType === 'SERIAL'}
+                onChange={() => onConnectionTypeChange('SERIAL')}
+                className="mt-1"
+              />
+            </div>
+          </div>
+
+          {/* WiFi Hotspot Option */}
+          <div
+            onClick={() => onConnectionTypeChange('WIFI')}
+            className={`p-4 rounded-xl border cursor-pointer transition-all ${
+              connectionType === 'WIFI'
+                ? 'bg-blue-950/40 border-blue-400 text-white shadow-lg shadow-blue-950/50'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+            }`}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${connectionType === 'WIFI' ? 'bg-blue-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                  <Wifi className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="font-bold font-tech text-sm">WiFi Hotspot (SoftAP)</div>
+                  <div className="text-[11px] text-slate-400">Nirkabel ke SSID ESP32 (Default: 192.168.4.1)</div>
+                </div>
+              </div>
+              <input
+                type="radio"
+                checked={connectionType === 'WIFI'}
+                onChange={() => onConnectionTypeChange('WIFI')}
+                className="mt-1"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid: WiFi Hotspot Settings & Serial Settings */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* WiFi Hotspot Configuration Card */}
+        <div className="p-6 rounded-2xl bg-[#0c1326] border border-blue-900/40 space-y-5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-blue-400 font-tech font-bold text-sm">
+              <Wifi className="w-4 h-4" />
+              KONFIGURASI WIFI HOTSPOT ESP32
+            </div>
+            <span className="text-[10px] font-mono-code px-2 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800">
+              SoftAP 802.11 b/g/n
+            </span>
+          </div>
+
+          <div className="space-y-3 text-xs font-mono-code">
+            <div>
+              <label className="text-slate-300 font-semibold block mb-1">
+                SSID Hotspot ESP32:
+              </label>
+              <input
+                type="text"
+                value={wifiConfig.ssid}
+                onChange={(e) => onWifiConfigChange({ ssid: e.target.value })}
+                placeholder="SMART-PARCEL-BOX-AP"
+                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500"
+              />
+              <span className="text-[11px] text-slate-500 mt-1 block">
+                Password Hotspot Bawaan: <code>12345678</code>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2">
+                <label className="text-slate-300 font-semibold block mb-1">
+                  IP Gateway ESP32:
+                </label>
+                <input
+                  type="text"
+                  value={wifiConfig.ip}
+                  onChange={(e) => onWifiConfigChange({ ip: e.target.value })}
+                  placeholder="192.168.4.1"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 font-bold outline-none focus:border-cyan-500"
+                />
+              </div>
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">
+                  Port:
+                </label>
+                <input
+                  type="number"
+                  value={wifiConfig.port}
+                  onChange={(e) => onWifiConfigChange({ port: Number(e.target.value) })}
+                  placeholder="80"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-cyan-300 outline-none focus:border-cyan-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-slate-300 font-semibold block mb-1">
+                Interval Polling Data Hotspot:
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[1000, 2000, 3000, 5000].map((ms) => (
+                  <button
+                    key={ms}
+                    type="button"
+                    onClick={() => onWifiConfigChange({ intervalMs: ms })}
+                    className={`py-1.5 px-2 rounded-lg border text-center transition-all ${
+                      wifiConfig.intervalMs === ms
+                        ? 'bg-blue-500 text-slate-950 font-bold border-blue-400'
+                        : 'bg-slate-900 border-slate-800 text-slate-400'
+                    }`}
+                  >
+                    {ms / 1000}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Test Ping Action */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handlePing}
+                disabled={isPinging}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-700/60 font-tech font-bold transition-colors"
+              >
+                <Signal className={`w-4 h-4 ${isPinging ? 'animate-pulse' : ''}`} />
+                <span>{isPinging ? 'Menguji Ping...' : 'Uji Sambungan (Ping ESP32)'}</span>
+              </button>
+            </div>
+
+            {pingResult && (
+              <div className={`p-3 rounded-xl border ${
+                pingResult.success
+                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+                  : 'bg-rose-950/40 border-rose-500/50 text-rose-300'
+              }`}>
+                <div className="flex items-center gap-1.5 font-bold font-tech text-xs">
+                  {pingResult.success ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  <span>{pingResult.success ? `Tersambung (${pingResult.latencyMs}ms)` : 'Gagal Ping'}</span>
+                </div>
+                <p className="text-[11px] mt-1 leading-relaxed opacity-90">{pingResult.msg}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Serial Configuration Card */}
         <div className="p-6 rounded-2xl bg-[#0c1326] border border-slate-800/80 space-y-5">
           <div className="flex items-center gap-2 text-cyan-400 font-tech font-bold text-sm">
             <Sliders className="w-4 h-4" />
-            KONFIGURASI PORT SERIAL
+            KONFIGURASI PORT USB SERIAL
           </div>
 
           <div className="space-y-2">
@@ -107,42 +323,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
             </button>
           </div>
-        </div>
 
-        {/* Browser Compatibility Check Card */}
-        <div className="p-6 rounded-2xl bg-[#0c1326] border border-slate-800/80 space-y-4">
-          <div className="flex items-center gap-2 text-cyan-400 font-tech font-bold text-sm">
-            <Globe className="w-4 h-4" />
-            KOMPATIBILITAS WEB SERIAL API
-          </div>
-
-          <div className={`p-4 rounded-xl border flex items-start gap-3 ${
-            isWebSerialSupported
-              ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
-              : 'bg-rose-950/20 border-rose-500/40 text-rose-300'
-          }`}>
-            {isWebSerialSupported ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-            ) : (
-              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
-            )}
-            <div className="text-xs space-y-1">
-              <div className="font-bold font-tech">
+          {/* Web Serial API Compatibility Badge */}
+          <div className="pt-3 border-t border-slate-800/80">
+            <div className={`p-3 rounded-xl border flex items-center gap-2.5 text-xs ${
+              isWebSerialSupported
+                ? 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300'
+                : 'bg-amber-950/20 border-amber-500/30 text-amber-300'
+            }`}>
+              {isWebSerialSupported ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> : <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />}
+              <span>
                 {isWebSerialSupported
-                  ? 'Browser Mendukung Web Serial API'
-                  : 'Web Serial API Tidak Terdeteksi'}
-              </div>
-              <p className="text-slate-400 text-[11px] leading-relaxed">
-                {isWebSerialSupported
-                  ? 'Browser berbasis Chromium Anda (Google Chrome / MS Edge) dapat mengakses ESP32 langsung melalui kabel USB.'
-                  : 'Gunakan Google Chrome atau Microsoft Edge untuk mengakses port USB perangkat keras. Di lingkungan sandbox/preview ini, Anda juga dapat mengaktifkan simulator ESP32 di bawah.'}
-              </p>
+                  ? 'Browser mendukung Web Serial API (Chrome/Edge).'
+                  : 'Web Serial tidak didukung browser ini. Gunakan metode WiFi Hotspot.'}
+              </span>
             </div>
-          </div>
-
-          <div className="text-[11px] text-slate-400 font-mono-code space-y-1.5 pt-2">
-            <div>• Browser yang Didukung: <strong>Chrome 89+, Edge 89+, Opera 75+</strong></div>
-            <div>• Keamanan: Hanya berjalan pada konteks aman (HTTPS atau localhost).</div>
           </div>
         </div>
       </div>
@@ -159,7 +354,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 PANEL SIMULATOR PERANGKAT KERAS (PENGUJIAN & DEMO)
               </h3>
               <p className="text-[11px] text-purple-300/80">
-                Gunakan simulator virtual untuk menguji seluruh respons dashboard tanpa perlu menghubungkan kabel USB fisik.
+                Gunakan simulator virtual untuk menguji seluruh respons dashboard baik via mode USB Serial maupun WiFi Hotspot.
               </p>
             </div>
           </div>
@@ -179,7 +374,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         {isSimulated ? (
           <div className="pt-4 border-t border-purple-800/40 space-y-4">
             <div className="text-xs text-purple-200 font-mono-code">
-              Pemicu Event Virtual ESP32 (Mengirimkan baris JSON instan):
+              Pemicu Event Virtual ESP32 (Mengirimkan data instan ke dashboard):
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <button
@@ -218,26 +413,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         ) : (
           <div className="text-xs text-slate-400 font-mono-code bg-black/40 p-3 rounded-xl border border-slate-800">
-            Simulator sedang nonaktif. Dashboard berjalan dalam mode hardware Web Serial asli yang mendengarkan USB COM port.
+            Simulator sedang nonaktif. Dashboard mendengarkan perangkat keras nyata sesuai mode yang dipilih ({connectionType === 'WIFI' ? 'WiFi Hotspot' : 'USB Serial'}).
           </div>
         )}
       </div>
 
-      {/* Device Specifications Info */}
-      <div className="p-6 rounded-2xl bg-[#0c1326] border border-slate-800/80 text-xs text-slate-400 space-y-3 font-mono-code">
+      {/* Guide: How to connect to ESP32 WiFi Hotspot */}
+      <div className="p-6 rounded-2xl bg-[#0c1326] border border-slate-800/80 space-y-4">
         <div className="flex items-center gap-2 text-white font-bold font-tech text-sm">
-          <ShieldCheck className="w-4 h-4 text-cyan-400" />
-          SPESIFIKASI TEKNIS SISTEM SMART PARCEL BOX
+          <Server className="w-4 h-4 text-cyan-400" />
+          PANDUAN MENGHUBUNGKAN VIA WIFI HOTSPOT ESP32
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-[11px]">
-          <div>• <strong>MCU Master:</strong> ESP32 WROOM-32 (Dual Core 240MHz)</div>
-          <div>• <strong>MCU Slave:</strong> Arduino Uno R3 (ATmega328P 16MHz)</div>
-          <div>• <strong>RTC IC:</strong> Maxim DS1302 Real-Time Clock Module</div>
-          <div>• <strong>Sensor Pintu:</strong> Normally Closed Magnetic Reed Switch</div>
-          <div>• <strong>Kriptografi:</strong> HMAC-SHA256 (TOTP Dynamic Truncation)</div>
-          <div>• <strong>Periode Valid:</strong> 43,200 detik (12 Jam)</div>
-          <div>• <strong>Komunikasi 1:</strong> USB Serial CDC (Browser Web Serial)</div>
-          <div>• <strong>Komunikasi 2:</strong> Hardware UART2 (GPIO16/GPIO17) ke Uno</div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono-code">
+          <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="text-cyan-400 font-bold">LANGKAH 1</div>
+            <div className="text-slate-300 font-semibold">Nyalakan ESP32</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Pastikan sketch firmware ESP32 sudah berjalan dan memancarkan SoftAP <code>SMART-PARCEL-BOX-AP</code>.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="text-cyan-400 font-bold">LANGKAH 2</div>
+            <div className="text-slate-300 font-semibold">Sambungkan HP/Laptop</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Buka menu WiFi pada komputer atau smartphone Anda, pilih <code>SMART-PARCEL-BOX-AP</code>, lalu masukkan password: <code>12345678</code>.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="text-cyan-400 font-bold">LANGKAH 3</div>
+            <div className="text-slate-300 font-semibold">Cek IP Gateway</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              IP gateway standar ESP32 SoftAP adalah <code>192.168.4.1</code> pada port <code>80</code>.
+            </p>
+          </div>
+
+          <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800 space-y-1.5">
+            <div className="text-cyan-400 font-bold">LANGKAH 4</div>
+            <div className="text-slate-300 font-semibold">Klik "CONNECT WIFI"</div>
+            <p className="text-slate-400 text-[11px] leading-relaxed">
+              Dashboard akan otomatis menarik status, PIN dinamis 6 digit, status pintu, dan waktu RTC secara live!
+            </p>
+          </div>
         </div>
       </div>
     </div>

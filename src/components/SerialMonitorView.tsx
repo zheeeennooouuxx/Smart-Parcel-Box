@@ -19,17 +19,23 @@ import {
   HelpCircle,
   Sparkles,
   KeyRound,
-  ArrowRight
+  ArrowRight,
+  Signal,
+  Wifi
 } from 'lucide-react';
 import { 
   SerialLineEntry, 
   SerialConnectionStatus, 
-  LineEndingType 
+  LineEndingType,
+  ConnectionType,
+  WifiConfig
 } from '../types/serial';
 
 interface SerialMonitorViewProps {
   lines: SerialLineEntry[];
   connectionStatus: SerialConnectionStatus;
+  connectionType?: ConnectionType;
+  wifiConfig?: WifiConfig;
   portInfo?: string;
   baudRate: number;
   pin?: string;
@@ -46,6 +52,8 @@ interface SerialMonitorViewProps {
 export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
   lines,
   connectionStatus,
+  connectionType = 'SERIAL',
+  wifiConfig,
   portInfo,
   baudRate,
   pin,
@@ -178,40 +186,53 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold text-white font-tech tracking-wide">
-                SERIAL MONITOR ESP32
+                {connectionType === 'WIFI' ? 'TERMINAL WIFI HOTSPOT ESP32' : 'SERIAL MONITOR ESP32'}
               </h2>
               <span className={`text-[10px] font-mono-code font-bold px-2 py-0.5 rounded-full border ${
                 isConnected
                   ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
                   : 'bg-slate-800 border-slate-700 text-slate-400'
               }`}>
-                {isConnected ? 'PORT DIBUKA' : 'OFFLINE'}
+                {isConnected ? (connectionType === 'WIFI' ? 'HOTSPOT AKTIF' : 'PORT DIBUKA') : 'OFFLINE'}
               </span>
             </div>
             <p className="text-[11px] text-slate-400 font-mono-code">
-              {isConnected ? `${portInfo || 'ESP32 Port'} @${baudRate} baud` : 'Belum terhubung ke port serial USB'}
+              {isConnected 
+                ? (connectionType === 'WIFI' 
+                    ? `SoftAP ${wifiConfig?.ssid || 'SMART-PARCEL-BOX-AP'} (${wifiConfig?.ip || '192.168.4.1'}:${wifiConfig?.port || 80})` 
+                    : `${portInfo || 'ESP32 Port'} @${baudRate} baud`)
+                : (connectionType === 'WIFI' 
+                    ? `Menunggu koneksi WiFi Hotspot ${wifiConfig?.ssid || 'SMART-PARCEL-BOX-AP'}` 
+                    : 'Belum terhubung ke port serial USB')}
             </p>
           </div>
         </div>
 
         {/* Toolbar Controls */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Baud Rate Picker */}
-          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 font-mono-code text-slate-300">
-            <Sliders className="w-3.5 h-3.5 text-cyan-400" />
-            <select
-              value={baudRate}
-              onChange={(e) => onBaudRateChange(Number(e.target.value))}
-              aria-label="Pilih Baud Rate"
-              className="bg-transparent text-cyan-300 font-bold outline-none cursor-pointer"
-            >
-              <option value={9600} className="bg-slate-900 text-slate-200">9600 baud</option>
-              <option value={19200} className="bg-slate-900 text-slate-200">19200 baud</option>
-              <option value={38400} className="bg-slate-900 text-slate-200">38400 baud</option>
-              <option value={57600} className="bg-slate-900 text-slate-200">57600 baud</option>
-              <option value={115200} className="bg-slate-900 text-slate-200">115200 baud</option>
-            </select>
-          </div>
+          {/* Baud Rate Picker (for Serial) or IP info (for WiFi) */}
+          {connectionType === 'SERIAL' ? (
+            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 font-mono-code text-slate-300">
+              <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+              <select
+                value={baudRate}
+                onChange={(e) => onBaudRateChange(Number(e.target.value))}
+                aria-label="Pilih Baud Rate"
+                className="bg-transparent text-cyan-300 font-bold outline-none cursor-pointer"
+              >
+                <option value={9600} className="bg-slate-900 text-slate-200">9600 baud</option>
+                <option value={19200} className="bg-slate-900 text-slate-200">19200 baud</option>
+                <option value={38400} className="bg-slate-900 text-slate-200">38400 baud</option>
+                <option value={57600} className="bg-slate-900 text-slate-200">57600 baud</option>
+                <option value={115200} className="bg-slate-900 text-slate-200">115200 baud</option>
+              </select>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 font-mono-code text-blue-300 text-[11px]">
+              <span className="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+              <span>{wifiConfig?.ip || '192.168.4.1'}:{wifiConfig?.port || 80}</span>
+            </div>
+          )}
 
           {/* Reset ESP32 Button */}
           <button
@@ -238,8 +259,8 @@ export const SerialMonitorView: React.FC<SerialMonitorViewProps> = ({
               onClick={onConnect}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-tech font-bold shadow-md shadow-cyan-500/20"
             >
-              <Usb className="w-3.5 h-3.5" />
-              <span>Connect Port</span>
+              {connectionType === 'WIFI' ? <Signal className="w-3.5 h-3.5" /> : <Usb className="w-3.5 h-3.5" />}
+              <span>{connectionType === 'WIFI' ? 'Connect WiFi' : 'Connect Port'}</span>
             </button>
           )}
         </div>

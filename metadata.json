@@ -1,6 +1,6 @@
 {
   "name": "SMART PARCEL BOX DASHBOARD",
-  "description": "Dashboard pemantauan perangkat Smart Parcel Box dan penampil PIN dinamis enam digit berbasis ESP32 melalui komunikasi USB Serial.",
+  "description": "Dashboard pemantauan perangkat Smart Parcel Box dan penampil PIN dinamis enam digit berbasis ESP32 melalui komunikasi USB Serial dan WiFi Hotspot.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

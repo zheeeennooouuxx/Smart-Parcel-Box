@@ -58,15 +58,28 @@ test('parseSerialJsonLine successfully parses valid JSON object lines and reject
   assert.equal(parseSerialJsonLine(''), null);
 });
 
+const mockBaseState: ParcelBoxState = {
+  connectionStatus: 'DISCONNECTED',
+  connectionType: 'SERIAL',
+  baudRate: 9600,
+  wifiConfig: {
+    ip: '192.168.4.1',
+    port: 80,
+    ssid: 'SMART-PARCEL-BOX-AP',
+    intervalMs: 2000,
+    protocol: 'HTTP_POLL',
+  },
+  rtcStatus: 'UNKNOWN',
+  pinStatus: 'WAITING_DEVICE',
+  doorStatus: 'UNKNOWN',
+  rxPacketCount: 0,
+  rxBytesCount: 0,
+};
+
 test('processESP32Message updates state and logs for normal status and transitions to CONNECTED', () => {
   const initialState: ParcelBoxState = {
+    ...mockBaseState,
     connectionStatus: 'CONNECTING',
-    baudRate: 9600,
-    rtcStatus: 'UNKNOWN',
-    pinStatus: 'WAITING_DEVICE',
-    doorStatus: 'UNKNOWN',
-    rxPacketCount: 0,
-    rxBytesCount: 0,
   };
 
   const msg = {
@@ -100,8 +113,8 @@ test('processESP32Message updates state and logs for normal status and transitio
 
 test('processESP32Message handles RTC error correctly and invalidates PIN', () => {
   const initialState: ParcelBoxState = {
+    ...mockBaseState,
     connectionStatus: 'CONNECTED',
-    baudRate: 9600,
     rtcStatus: 'OK',
     pin: '084291',
     pinStatus: 'ACTIVE',
@@ -129,8 +142,8 @@ test('processESP32Message handles RTC error correctly and invalidates PIN', () =
 
 test('processESP32Message handles door state transition from CLOSED to OPEN', () => {
   const initialState: ParcelBoxState = {
+    ...mockBaseState,
     connectionStatus: 'CONNECTED',
-    baudRate: 9600,
     rtcStatus: 'OK',
     pin: '084291',
     pinStatus: 'ACTIVE',
@@ -172,13 +185,7 @@ test('parseAnySerialLine extracts PIN and metadata from plain-text serial output
 
 test('processESP32Message transitions DISCONNECTED state to CONNECTED upon receiving serial communication', () => {
   const disconnectedState: ParcelBoxState = {
-    connectionStatus: 'DISCONNECTED',
-    baudRate: 9600,
-    rtcStatus: 'UNKNOWN',
-    pinStatus: 'WAITING_DEVICE',
-    doorStatus: 'UNKNOWN',
-    rxPacketCount: 0,
-    rxBytesCount: 0,
+    ...mockBaseState,
   };
 
   const incomingPinMsg = parseAnySerialLine('PIN: 084291')!;
@@ -194,4 +201,28 @@ test('processESP32Message transitions DISCONNECTED state to CONNECTED upon recei
   // Logs must record connection and pin sync
   assert.ok(newLogs.some(l => l.type === 'CONNECT'));
   assert.ok(newLogs.some(l => l.type === 'INFO' && l.message.includes('084291')));
+});
+
+test('parseAnySerialLine extracts data from WiFi Hotspot HTTP and WebSocket telemetry lines', () => {
+  // HTTP REST response format
+  const httpLine = '[HTTP GET 200] {"type":"STATUS","rtc":"OK","date":"2026-11-09","time":"12:30:00","period":43821,"pin":"084291","door":"CLOSED"}';
+  const parsedHttp = parseAnySerialLine(httpLine);
+  assert.ok(parsedHttp);
+  assert.equal(parsedHttp?.pin, '084291');
+  assert.equal(parsedHttp?.period, 43821);
+  assert.equal(parsedHttp?.door, 'CLOSED');
+  assert.equal(parsedHttp?.rtc, 'OK');
+
+  // WebSocket message format
+  const wsLine = '[WS RX] {"type":"DOOR","door":"OPEN"}';
+  const parsedWs = parseAnySerialLine(wsLine);
+  assert.ok(parsedWs);
+  assert.equal(parsedWs?.door, 'OPEN');
+
+  // Hotspot reply format
+  const replyLine = '[HOTSPOT HTTP 200] {"pin":"084291","period":43821,"status":"ACTIVE"}';
+  const parsedReply = parseAnySerialLine(replyLine);
+  assert.ok(parsedReply);
+  assert.equal(parsedReply?.pin, '084291');
+  assert.equal(parsedReply?.period, 43821);
 });

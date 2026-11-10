@@ -49,8 +49,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'monitor' as ActiveTab,
-      label: 'Serial Monitor',
-      sublabel: 'Kirim & Terima Port ESP',
+      label: 'Terminal Monitor',
+      sublabel: 'USB & WiFi Hotspot',
       icon: Terminal,
       badge: state.connectionStatus === 'CONNECTED' ? 'ONLINE' : undefined,
       badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
@@ -71,7 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       id: 'settings' as ActiveTab,
       label: 'Settings',
-      sublabel: 'Baud Rate & Opsi',
+      sublabel: 'Baud Rate & WiFi Hotspot',
       icon: Settings,
     },
   ];

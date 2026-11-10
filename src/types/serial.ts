@@ -23,10 +23,24 @@ export interface ESP32Message {
   [key: string]: unknown;
 }
 
+export type ConnectionType = 'SERIAL' | 'WIFI';
+
+export interface WifiConfig {
+  ip: string;
+  port: number;
+  ssid: string;
+  password?: string;
+  intervalMs: number;
+  protocol: 'HTTP_POLL' | 'WEBSOCKET';
+}
+
 export interface ParcelBoxState {
   connectionStatus: SerialConnectionStatus;
+  connectionType: ConnectionType;
   portInfo?: string;
   baudRate: number;
+  wifiConfig: WifiConfig;
+  wifiRssi?: number;
   rtcStatus: RTCStatus;
   date?: string;
   time?: string;
