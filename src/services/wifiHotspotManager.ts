@@ -220,7 +220,15 @@ export class WifiHotspotManager {
         this.isConnected = false;
         this.isConnecting = false;
         this.stopPolling();
-        const msg = 'ESP32 tidak merespons HTTP di WiFi ' + this.config.ssid + ' (sketsa Anda mengirim data via Serial USB COM4, bukan WebServer). Silakan beralih ke mode USB Serial (COM4).';
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+        let msg = `Tidak dapat membaca HTTP REST dari ESP32 di ${url}.`;
+        if (isHttps) {
+          msg = `Browser memblokir permintaan HTTP ke http://${cleanIp} karena dashboard dibuka lewat HTTPS (Mixed Content / CORS). Buka langsung Dashboard ESP32 di http://${cleanIp}/ atau izinkan "Insecure Content" di setelan situs browser.`;
+        } else if (error.name === 'AbortError') {
+          msg = `Timeout menghubungi ESP32 di ${url}. Pastikan komputer terhubung ke WiFi "${this.config.ssid}" dan IP "${cleanIp}" sudah benar.`;
+        } else {
+          msg = `Gagal fetch ke ${url} (${error.message}). Pastikan ESP32 mengaktifkan header CORS pada WebServer.`;
+        }
         this.callbacks.onStatusChange('ERROR', msg);
       }
       return false;

@@ -463,6 +463,26 @@ export const Header: React.FC<HeaderProps> = ({
                   <p className="text-[11px] mt-1 leading-relaxed opacity-90">{pingResult.msg}</p>
                 </div>
               )}
+              {/* Direct Open ESP32 Web Portal */}
+              {wifiConfig.ip && (
+                <div className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <ExternalLink className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <div className="text-white font-bold text-xs">Web Server Bawaan ESP32 Siap</div>
+                      <div className="text-[10px] text-slate-400">Buka dashboard HTML internal di http://{wifiConfig.ip}/</div>
+                    </div>
+                  </div>
+                  <a
+                    href={`http://${wifiConfig.ip.trim().replace(/^https?:\/\//, '')}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    <span>Buka Web ESP32 ↗</span>
+                  </a>
+                </div>
+              )}
             </div>
 
             <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-3">

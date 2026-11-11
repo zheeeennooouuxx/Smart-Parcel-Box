@@ -293,13 +293,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            {/* Test Ping Action */}
-            <div className="pt-2">
+            {/* Test Ping Action & Direct Web Server Link */}
+            <div className="pt-2 space-y-2">
+              {wifiConfig.ip && (
+                <a
+                  href={`http://${wifiConfig.ip.trim().replace(/^https?:\/\//, '')}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-tech font-bold transition-all shadow-md cursor-pointer text-xs"
+                >
+                  <Globe className="w-4 h-4" />
+                  <span>Buka Web Server ESP32 Langsung (http://{wifiConfig.ip}/) ↗</span>
+                </a>
+              )}
+
               <button
                 type="button"
                 onClick={handlePing}
                 disabled={isPinging}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-700/60 font-tech font-bold transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-700/60 font-tech font-bold transition-colors cursor-pointer"
               >
                 <Signal className={`w-4 h-4 ${isPinging ? 'animate-pulse' : ''}`} />
                 <span>{isPinging ? 'Menguji Ping...' : 'Uji Sambungan (Ping ESP32)'}</span>

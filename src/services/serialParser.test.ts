@@ -343,3 +343,21 @@ test('parseAnySerialLine and processESP32Message automatically record 10.86.29.1
   assert.equal(testState.time, '01:04:50');
   assert.equal(testState.rtcStatus, 'OK');
 });
+
+test('parseAnySerialLine and parseSerialJsonLine correctly map Indonesian keys from user ESP32 WebServer handleStatus', () => {
+  const jsonOutput = '{"pin":"714502","tanggal":"11/11/2026","waktu":"01:04:50","periode":41536,"pintu":"Tertutup","wifi":true,"rssi":-16}';
+  const parsed = parseAnySerialLine(jsonOutput);
+  assert.ok(parsed);
+  assert.equal(parsed?.pin, '714502');
+  assert.equal(parsed?.date, '11/11/2026');
+  assert.equal(parsed?.time, '01:04:50');
+  assert.equal(parsed?.period, 41536);
+  assert.equal(parsed?.door, 'CLOSED');
+  assert.equal(parsed?.wifiRssi, -16);
+  assert.equal(parsed?.rtc, 'OK');
+
+  // Also test with "Terbuka" door
+  const jsonDoorOpen = '{"pin":"714502","tanggal":"11/11/2026","waktu":"01:04:50","periode":41536,"pintu":"Terbuka","wifi":true,"rssi":-16}';
+  const parsedOpen = parseAnySerialLine(jsonDoorOpen);
+  assert.equal(parsedOpen?.door, 'OPEN');
+});

@@ -512,33 +512,44 @@ export default function App() {
             ) : (
               <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
             )}
-            <span>
-              {alertBanner.message.includes('Failed to fetch') || alertBanner.message.includes('timeout')
-                ? 'Koneksi WiFi HTTP gagal karena firmware ESP32 mengirim data melalui USB Serial. Klik tombol di kanan untuk menghubungkan via COM4!'
-                : alertBanner.message}
-            </span>
+            <span>{alertBanner.message}</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Direct ESP32 Web Server Link */}
+            {state.wifiConfig.ip && (
+              <a
+                href={`http://${state.wifiConfig.ip.trim().replace(/^https?:\/\//, '')}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                title="Buka dashboard web bawaan ESP32 secara langsung di tab baru"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Buka Web ESP32 (http://{state.wifiConfig.ip}/) ↗</span>
+              </a>
+            )}
+
             {alertBanner.type === 'info' ? (
               <button
                 onClick={() => handleSwitchToWifi()}
                 className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
               >
                 <Wifi className="w-3.5 h-3.5" />
-                <span>BERALIH KE WIFI HOTSPOT ({state.wifiConfig.ip})</span>
+                <span>SAMBUNGKAN KE WIFI</span>
               </button>
             ) : (
               <button
                 onClick={handleConnectSerial}
-                className="px-3 py-1 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1 cursor-pointer"
+                className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold font-tech text-xs tracking-wider transition-all shadow-md flex items-center gap-1 cursor-pointer"
               >
                 <Usb className="w-3.5 h-3.5" />
                 <span>Gunakan USB Serial (COM4)</span>
               </button>
             )}
+
             <button
               onClick={() => setActiveTab('settings')}
-              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 cursor-pointer"
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs border border-slate-700 cursor-pointer"
             >
               Menu WiFi
             </button>

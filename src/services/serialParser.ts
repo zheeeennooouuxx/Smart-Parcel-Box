@@ -81,8 +81,32 @@ export function parseSerialJsonLine(line: string): ESP32Message | null {
   try {
     const parsed = JSON.parse(trimmed) as ESP32Message;
     if (typeof parsed === 'object' && parsed !== null) {
+      const rawObj = parsed as Record<string, unknown>;
+      // Map Indonesian JSON keys from ESP32 Web Server handleStatus()
+      if (rawObj.tanggal && !parsed.date) {
+        parsed.date = String(rawObj.tanggal);
+      }
+      if (rawObj.waktu && !parsed.time) {
+        parsed.time = String(rawObj.waktu);
+      }
+      if (rawObj.periode !== undefined && parsed.period === undefined) {
+        parsed.period = Number(rawObj.periode);
+      }
+      if (rawObj.pintu && !parsed.door) {
+        const pStr = String(rawObj.pintu).toLowerCase();
+        parsed.door = pStr.includes('buka') ? 'OPEN' : 'CLOSED';
+      }
+      if (rawObj.rssi !== undefined && parsed.wifiRssi === undefined) {
+        parsed.wifiRssi = Number(rawObj.rssi);
+      }
       if (parsed.pin !== undefined) {
         parsed.pin = formatSixDigitPin(parsed.pin);
+      }
+      if (!parsed.type) {
+        parsed.type = 'STATUS';
+      }
+      if (!parsed.rtc && (parsed.date || parsed.time || parsed.pin)) {
+        parsed.rtc = 'OK';
       }
       return parsed;
     }
@@ -117,8 +141,32 @@ export function parseAnySerialLine(line: string): ESP32Message | null {
     try {
       const parsed = JSON.parse(jsonCandidate) as ESP32Message;
       if (typeof parsed === 'object' && parsed !== null) {
+        const rawObj = parsed as Record<string, unknown>;
+        // Map Indonesian JSON keys from ESP32 Web Server handleStatus()
+        if (rawObj.tanggal && !parsed.date) {
+          parsed.date = String(rawObj.tanggal);
+        }
+        if (rawObj.waktu && !parsed.time) {
+          parsed.time = String(rawObj.waktu);
+        }
+        if (rawObj.periode !== undefined && parsed.period === undefined) {
+          parsed.period = Number(rawObj.periode);
+        }
+        if (rawObj.pintu && !parsed.door) {
+          const pStr = String(rawObj.pintu).toLowerCase();
+          parsed.door = pStr.includes('buka') ? 'OPEN' : 'CLOSED';
+        }
+        if (rawObj.rssi !== undefined && parsed.wifiRssi === undefined) {
+          parsed.wifiRssi = Number(rawObj.rssi);
+        }
         if (parsed.pin !== undefined) {
           parsed.pin = formatSixDigitPin(parsed.pin);
+        }
+        if (!parsed.type) {
+          parsed.type = 'STATUS';
+        }
+        if (!parsed.rtc && (parsed.date || parsed.time || parsed.pin)) {
+          parsed.rtc = 'OK';
         }
         return parsed;
       }
